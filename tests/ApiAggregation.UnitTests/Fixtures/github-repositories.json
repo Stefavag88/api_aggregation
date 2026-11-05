@@ -1,0 +1,14 @@
+{
+  "total_count": 1,
+  "incomplete_results": false,
+  "items": [
+    {
+      "id": 1296269,
+      "name": "example",
+      "html_url": "https://github.com/octocat/example",
+      "description": "A sample repository",
+      "created_at": "2020-01-02T03:04:05Z",
+      "topics": ["dotnet", "csharp"]
+    }
+  ]
+}

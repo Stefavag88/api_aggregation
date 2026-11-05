@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <ProjectReference Include="../ApiAggregation.Application/ApiAggregation.Application.csproj" />
     <ProjectReference Include="../ApiAggregation.Domain/ApiAggregation.Domain.csproj" />
   </ItemGroup>

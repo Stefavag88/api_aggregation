@@ -179,16 +179,16 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `GitHubClient(HttpClient httpClient)` implements `IExternalContentClient` with descriptor `github/Repository`. Configure typed client headers/base address through validated `GitHubOptions` (`https://api.github.com/`, optional Token). `AddInfrastructure(IServiceCollection services, IConfiguration configuration): IServiceCollection` registers clients, adapters, TimeProvider, and later decorators; every IDiscoveryProvider descriptor must be unique. Register each ProviderDescriptor as singleton metadata independently of its client/decorator factory. Statistics consumes only this metadata, never the provider objects, avoiding a metrics-handler -> store -> provider -> metrics-handler DI cycle. Use TryAdd for TimeProvider so test overrides remain possible.
 
-- [ ] Write mapping/request tests: URL-encoded topic with `is:public`, `per_page=30`, page 1; User-Agent and GitHub JSON accept headers; optional token; id/name/html_url/created_at/topics mapping. Test valid empty, bad JSON, incomplete_results, partially invalid items, and all invalid items. `AllInvalidRecordsAreFailure` asserts:
+- [x] Write mapping/request tests: URL-encoded topic with `is:public`, `per_page=30`, page 1; User-Agent and GitHub JSON accept headers; optional token; id/name/html_url/created_at/topics mapping. Test valid empty, bad JSON, incomplete_results, partially invalid items, and all invalid items. `AllInvalidRecordsAreFailure` asserts:
   ```csharp
   var result = await client.FetchAsync("dotnet", cancellationToken);
   Assert.False(result.IsSuccess);
   Assert.Equal("invalid_payload", result.Error!.Code);
   ```
-- [ ] Run **Unit / GitHubClientTests**; confirm absence.
-- [ ] Implement DTOs/client using `SendAsync(..., ResponseHeadersRead, cancellationToken)` and bounded body parsing. Select at most 30 items, apply the spec's incomplete-response rules, dispose responses, never log tokens. Register this real adapter in the application; tests substitute only its primary HTTP handler.
-- [ ] Run **Unit all** and **Integration all**. Prove `/api/discovery?sources=github&topic=dotnet` passes through real DI, client, mapping, and controller under the HTTP stub. Add GitHub setup/topic semantics to README.
-- [ ] Commit: `feat: integrate GitHub repository discovery`.
+- [x] Run **Unit / GitHubClientTests**; confirm absence.
+- [x] Implement DTOs/client using `SendAsync(..., ResponseHeadersRead, cancellationToken)` and bounded body parsing. Select at most 30 items, apply the spec's incomplete-response rules, dispose responses, never log tokens. Register this real adapter in the application; tests substitute only its primary HTTP handler.
+- [x] Run **Unit all** and **Integration all**. Prove `/api/discovery?sources=github&topic=dotnet` passes through real DI, client, mapping, and controller under the HTTP stub. Add GitHub setup/topic semantics to README.
+- [x] Commit: `feat: integrate GitHub repository discovery`.
 
 ## Task 8: Integrate DEV articles
 

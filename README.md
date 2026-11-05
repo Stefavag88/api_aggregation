@@ -2,8 +2,9 @@
 
 An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness and discovery, shared Result
-primitives, validated queries, and concurrent aggregation. External providers,
-statistics, caching, and authentication are not implemented yet.
+primitives, validated queries, and concurrent aggregation. GitHub is the first
+registered provider. DEV, Hacker News, statistics, caching, and authentication
+will follow in later increments.
 
 ## Local setup
 
@@ -17,7 +18,7 @@ Invoke-RestMethod http://localhost:5080/health/live
 ```
 
 The liveness endpoint returns HTTP 200 with `{"status":"healthy"}`.
-No external services or credentials are needed for this initial scaffold.
+Liveness works without external services or credentials. Discovery calls GitHub.
 
 ## Structure
 
@@ -41,8 +42,8 @@ dotnet test tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTest
 ```
 
 Tests use xUnit v3's `mtp-off` package with the VSTest adapter so this command
-works consistently with .NET 10. Integration tests host the real MVC pipeline with
-controlled providers; they never call external APIs. Smoke tests arrive later.
+works consistently with .NET 10. Integration tests host the real MVC pipeline and
+stub GitHub at the HTTP transport. Smoke tests arrive later.
 
 See the [design](docs/superpowers/specs/2026-11-05-api-aggregation-design.md) and
 [implementation plan](docs/superpowers/plans/2026-11-05-api-aggregation.md).
@@ -62,11 +63,16 @@ failures appear in reports; only total unavailability produces a failed Result.
 
 ## HTTP discovery endpoint
 
-`GET /api/discovery?topic=dotnet&sources=github,devto&sortBy=date&sortDirection=desc&limit=30`
+`GET /api/discovery?topic=dotnet&sources=github&sortBy=date&sortDirection=desc&limit=30`
 
 Optional filters: `type=repository|article|discussion`, `from` and `to` (RFC 3339).
-Source names must be registered. Until the real adapters arrive, a query without
-sources returns 503 because there are no production providers.
+Omit `sources` to search all registered providers. Currently `github` is the only source.
+
+GitHub searches public repositories using the topic as a search term and retrieves
+up to 30 candidates from the first page. Repository dates come from `created_at`.
+Public search works without credentials. Set `Providers__GitHub__Token` in the
+API process environment to use an optional GitHub token for authenticated requests.
+See the [GitHub repository search documentation](https://docs.github.com/en/rest/search/search#search-repositories).
 
 Successful responses (including partial or empty results) use HTTP 200:
 

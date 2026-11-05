@@ -4,4 +4,7 @@
     <ProjectReference Include="../../src/ApiAggregation.Application/ApiAggregation.Application.csproj" />
     <ProjectReference Include="../../src/ApiAggregation.Infrastructure/ApiAggregation.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures/**/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
