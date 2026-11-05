@@ -208,16 +208,16 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `HackerNewsClient(HttpClient httpClient)` implements the raw client port with descriptor `hackernews/Discussion`; base `https://hn.algolia.com/`, request `/api/v1/search?tags=story&query=dotnet&hitsPerPage=30&page=0`. Map objectID, title, created_at, story_text when present, and available tags; URL is `https://news.ycombinator.com/item?id={objectID}`.
 
-- [ ] Write mapping/error tests equivalent to the previous providers, including null external story URL. Write gated `AllThreeTransportsStartBeforeAnyCompletes` in the real host and assert:
+- [x] Write mapping/error tests equivalent to the previous providers, including null external story URL. Write gated `AllThreeTransportsStartBeforeAnyCompletes` in the real host and assert:
   ```csharp
   Assert.Equal(new[] { "devto", "github", "hackernews" }, startedProviders.Order().ToArray());
   Assert.True(result.IsSuccess);
   Assert.Equal(3, result.Value!.Providers.Length);
   ```
-- [ ] Run **Unit / HackerNewsClientTests** and **Integration / ProviderFanOutTests**; confirm expected failures.
-- [ ] Implement/register the client and complete transport-only integration fixtures. Default endpoint selects all three; source filtering selects only requested providers. Keep cross-source records even when URLs/titles resemble each other.
-- [ ] Run **Unit all** and **Integration all**. README explains candidate-window limits and creation/publication date semantics across all sources.
-- [ ] Commit: `feat: integrate Hacker News and complete provider fan-out`.
+- [x] Run **Unit / HackerNewsClientTests** and **Integration / ProviderFanOutTests**; confirm expected failures.
+- [x] Implement/register the client and complete transport-only integration fixtures. Default endpoint selects all three; source filtering selects only requested providers. Keep cross-source records even when URLs/titles resemble each other.
+- [x] Run **Unit all** and **Integration all**. README explains candidate-window limits and creation/publication date semantics across all sources.
+- [x] Commit: `feat: integrate Hacker News and complete provider fan-out`.
 
 ## Task 10: Implement thread-safe request statistics
 

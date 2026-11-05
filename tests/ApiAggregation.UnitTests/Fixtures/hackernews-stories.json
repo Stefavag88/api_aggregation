@@ -1,0 +1,18 @@
+{
+  "hits": [
+    {
+      "objectID": "12345",
+      "title": "Ask HN: Building with .NET",
+      "url": null,
+      "created_at": "2026-01-02T03:04:05Z",
+      "story_text": "What are you building?",
+      "_tags": ["story", "author_example", "story_12345"]
+    },
+    {
+      "objectID": "12346",
+      "title": "Show HN: A .NET tool",
+      "url": "https://example.com/tool",
+      "created_at": "2026-01-01T03:04:05Z"
+    }
+  ]
+}

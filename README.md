@@ -2,9 +2,8 @@
 
 An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness and discovery, shared Result
-primitives, validated queries, and concurrent aggregation across GitHub and DEV.
-Hacker News, statistics, caching, and authentication
-will follow in later increments.
+primitives, validated queries, and concurrent aggregation across GitHub, DEV,
+and Hacker News. Statistics, caching, and authentication will follow in later increments.
 
 ## Local setup
 
@@ -63,10 +62,12 @@ failures appear in reports; only total unavailability produces a failed Result.
 
 ## HTTP discovery endpoint
 
-`GET /api/discovery?topic=dotnet&sources=github,devto&sortBy=date&sortDirection=desc&limit=30`
+`GET /api/discovery?topic=dotnet&sources=github,devto,hackernews&sortBy=date&sortDirection=desc&limit=30`
 
 Optional filters: `type=repository|article|discussion`, `from` and `to` (RFC 3339).
-Omit `sources` to search all enabled providers. The available source names are `github` and `devto`.
+Omit `sources` to search all enabled providers concurrently. The source names are
+`github`, `devto`, and `hackernews`. Each contributes up to 30 candidates from its
+first upstream page. Date filtering, sorting, and the result limit apply after retrieval.
 
 GitHub searches public repositories using the topic as a search term and retrieves
 up to 30 candidates from the first page. Repository dates come from `created_at`.
@@ -87,6 +88,12 @@ See the [Forem API reference](https://developers.forem.com/api/v1#tag/articles/o
 
 DEV is enabled by default. Set `Providers:DevTo:Enabled` to `false` in
 `appsettings.json` or set `Providers__DevTo__Enabled=false`, then restart the API.
+
+Hacker News searches for stories through Algolia and returns links to their Hacker
+News discussions. Dates come from each story's `created_at`. The search requires
+no API key. Set `Providers:HackerNews:Enabled` to `false` or set
+`Providers__HackerNews__Enabled=false`, then restart the API to disable it.
+See the [Hacker News Search API](https://hn.algolia.com/api).
 
 Successful responses (including partial or empty results) use HTTP 200:
 
