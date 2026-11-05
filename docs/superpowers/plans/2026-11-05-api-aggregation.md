@@ -225,7 +225,7 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `IStatisticsReader.GetSnapshot(): StatisticsSnapshot`. Snapshot carries `StartedAt`, `SnapshotAt`, immutable provider statistics. Provider statistics contain Source, TotalRequests, SuccessCount, FailureCount, CanceledCount, nullable AverageResponseTimeMs, and named Fast/Average/Slow BucketStatistics (Count and nullable AverageResponseTimeMs). `AttemptObservation(string Source, TimeSpan Duration, AttemptOutcome Outcome, DateTimeOffset CompletedAt)`; outcome is Success/Failure/Canceled. `IRequestStatisticsRecorder.Record(AttemptObservation observation): void`. One singleton store implements both ports and receives registered descriptors and TimeProvider.
 
-- [ ] Write tests for empty providers (count 0/mean null), exact 100/200 ms bucket boundaries, outcome totals, weighted means, immutable snapshots, and parallel writes to one and multiple providers. For samples 99,100,200,201 ms in `UsesExactBucketBoundaries`, assert:
+- [x] Write tests for empty providers (count 0/mean null), exact 100/200 ms bucket boundaries, outcome totals, weighted means, immutable snapshots, and parallel writes to one and multiple providers. For samples 99,100,200,201 ms in `UsesExactBucketBoundaries`, assert:
   ```csharp
   Assert.Equal(4, stats.TotalRequests);
   Assert.Equal(150d, stats.AverageResponseTimeMs);
@@ -233,10 +233,10 @@ File paths below are repository-relative. Each type lives in its named file exce
   Assert.Equal(2, stats.Average.Count);
   Assert.Equal(1, stats.Slow.Count);
   ```
-- [ ] Run **Unit / InMemoryStatisticsStoreTests**; confirm absence.
-- [ ] Implement per-provider locked accumulators for totals/sums/buckets/outcomes. Validate nonnegative duration and known provider names; use a fixed provider-key set. Return independent snapshots with null means when empty. Do not introduce unbounded sample lists or queues.
-- [ ] Run **Unit all**. A parallel test records 10,000 known observations and asserts exact total/bucket/outcome sums; it must not merely assert no exception.
-- [ ] Commit: `feat: add thread-safe provider statistics store`.
+- [x] Run **Unit / InMemoryStatisticsStoreTests**; confirm absence.
+- [x] Implement per-provider locked accumulators for totals/sums/buckets/outcomes. Validate nonnegative duration and known provider names; use a fixed provider-key set. Return independent snapshots with null means when empty. Do not introduce unbounded sample lists or queues.
+- [x] Run **Unit all**. A parallel test records 10,000 known observations and asserts exact total/bucket/outcome sums; it must not merely assert no exception.
+- [x] Commit: `feat: add thread-safe provider statistics store`.
 
 ## Task 11: Measure HTTP attempts and expose statistics
 
