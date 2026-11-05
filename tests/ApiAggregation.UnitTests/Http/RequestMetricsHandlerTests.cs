@@ -94,7 +94,11 @@ public sealed class RequestMetricsHandlerTests
     {
         public List<AttemptObservation> Observations { get; } = [];
 
-        public void Record(AttemptObservation observation) => Observations.Add(observation);
+        public ValueTask RecordAsync(AttemptObservation observation)
+        {
+            Observations.Add(observation);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class TestClock : TimeProvider

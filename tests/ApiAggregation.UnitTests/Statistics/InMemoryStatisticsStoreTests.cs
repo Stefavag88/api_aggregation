@@ -1,6 +1,7 @@
 using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Domain.Discovery;
 using ApiAggregation.Infrastructure.Statistics;
+using Microsoft.Extensions.Options;
 
 namespace ApiAggregation.UnitTests.Statistics;
 
@@ -9,16 +10,60 @@ public sealed class InMemoryStatisticsStoreTests
     private static readonly DateTimeOffset Now = new(2026, 11, 5, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task ObservationsAreVisibleOnlyAfterPublication()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var store = CreateStore();
+        var initial = store.GetSnapshot();
+
+        await store.RecordAsync(Observation("github", 20, AttemptOutcome.Success));
+        await store.RecordAsync(Observation("github", 50, AttemptOutcome.Success));
+
+        Assert.Same(initial, store.GetSnapshot());
+        await store.StartAsync(cancellationToken);
+        await store.StopAsync(cancellationToken);
+
+        var published = store.GetSnapshot().Providers.Single(provider => provider.Source == "github");
+        Assert.Equal(2, published.TotalRequests);
+        Assert.Equal(35d, published.AverageResponseTimeMs);
+    }
+
+    [Fact]
+    public async Task FullChannelWaitsForSpaceAndRetainsObservations()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var store = CreateStore();
+        var observation = Observation("github", 20, AttemptOutcome.Success);
+
+        for (var index = 0; index < 4096; index++)
+        {
+            var accepted = store.RecordAsync(observation);
+            Assert.True(accepted.IsCompletedSuccessfully);
+            await accepted;
+        }
+
+        var waiting = store.RecordAsync(observation).AsTask();
+        Assert.False(waiting.IsCompleted);
+
+        await store.StartAsync(cancellationToken);
+        await waiting.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        await store.StopAsync(cancellationToken);
+
+        var stats = store.GetSnapshot().Providers.Single(provider => provider.Source == "github");
+        Assert.Equal(4097, stats.TotalRequests);
+    }
+
+    [Fact]
     public void IncludesUncontactedProvidersAndNullAverages()
     {
         var clock = new TestClock();
-        var store = CreateStore(clock);
+        using var store = CreateStore(clock);
         clock.UtcNow = Now.AddSeconds(1);
 
         var snapshot = store.GetSnapshot();
 
         Assert.Equal(Now, snapshot.StartedAt);
-        Assert.Equal(clock.UtcNow, snapshot.SnapshotAt);
+        Assert.Equal(Now, snapshot.SnapshotAt);
         Assert.Equal(new[] { "devto", "github" }, snapshot.Providers.Select(provider => provider.Source));
         Assert.All(snapshot.Providers, provider =>
         {
@@ -33,13 +78,16 @@ public sealed class InMemoryStatisticsStoreTests
     }
 
     [Fact]
-    public void UsesExactBucketBoundaries()
+    public async Task UsesExactBucketBoundaries()
     {
-        var store = CreateStore();
-        store.Record(Observation("github", 99, AttemptOutcome.Success));
-        store.Record(Observation("github", 100, AttemptOutcome.Failure));
-        store.Record(Observation("github", 200, AttemptOutcome.Canceled));
-        store.Record(Observation("github", 201, AttemptOutcome.Success));
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var store = CreateStore();
+        await store.StartAsync(cancellationToken);
+        await store.RecordAsync(Observation("github", 99, AttemptOutcome.Success));
+        await store.RecordAsync(Observation("github", 100, AttemptOutcome.Failure));
+        await store.RecordAsync(Observation("github", 200, AttemptOutcome.Canceled));
+        await store.RecordAsync(Observation("github", 201, AttemptOutcome.Success));
+        await store.StopAsync(cancellationToken);
 
         var stats = store.GetSnapshot().Providers.Single(provider => provider.Source == "github");
 
@@ -54,14 +102,33 @@ public sealed class InMemoryStatisticsStoreTests
     }
 
     [Fact]
-    public void SnapshotsPreserveEarlierValuesAndUseWeightedMeans()
+    public async Task PublishesOnConfiguredTickAndPreservesEarlierSnapshots()
     {
-        var store = CreateStore();
-        store.Record(Observation("github", 10, AttemptOutcome.Success));
-        var previous = store.GetSnapshot().Providers.Single(provider => provider.Source == "github");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromSeconds(5));
+        var clock = new TestClock();
+        var interval = TimeSpan.FromSeconds(3);
+        using var store = CreateStore(clock, interval);
+        var initial = store.GetSnapshot();
+        await store.RecordAsync(Observation("github", 10, AttemptOutcome.Success));
+        await store.StartAsync(cancellation.Token);
+        var timer = await clock.TimerCreated.Task.WaitAsync(cancellation.Token);
+        Assert.Equal(interval, timer.Period);
+        Assert.Same(initial, store.GetSnapshot());
 
-        store.Record(Observation("github", 20, AttemptOutcome.Success));
-        store.Record(Observation("github", 300, AttemptOutcome.Success));
+        clock.UtcNow = Now + interval;
+        timer.Tick();
+        while (ReferenceEquals(initial, store.GetSnapshot()))
+            await Task.Delay(10, cancellation.Token);
+
+        var snapshot = store.GetSnapshot();
+        Assert.Equal(clock.UtcNow, snapshot.SnapshotAt);
+        var previous = snapshot.Providers.Single(provider => provider.Source == "github");
+
+        await store.RecordAsync(Observation("github", 20, AttemptOutcome.Success));
+        await store.RecordAsync(Observation("github", 300, AttemptOutcome.Success));
+        Assert.Same(snapshot, store.GetSnapshot());
+        await store.StopAsync(cancellation.Token);
         var current = store.GetSnapshot().Providers.Single(provider => provider.Source == "github");
 
         Assert.Equal(1, previous.TotalRequests);
@@ -73,20 +140,23 @@ public sealed class InMemoryStatisticsStoreTests
     [Fact]
     public void RejectsInvalidObservationsWithoutChangingTotals()
     {
-        var store = CreateStore();
+        using var store = CreateStore();
 
-        Assert.Throws<ArgumentException>(() => store.Record(Observation("unknown", 10, AttemptOutcome.Success)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => store.Record(Observation("github", -1, AttemptOutcome.Success)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => store.Record(Observation("github", 10, (AttemptOutcome)99)));
+        Assert.Throws<ArgumentException>(() => { _ = store.RecordAsync(Observation("unknown", 10, AttemptOutcome.Success)); });
+        Assert.Throws<ArgumentOutOfRangeException>(() => { _ = store.RecordAsync(Observation("github", -1, AttemptOutcome.Success)); });
+        Assert.Throws<ArgumentOutOfRangeException>(() => { _ = store.RecordAsync(Observation("github", 10, (AttemptOutcome)99)); });
         Assert.All(store.GetSnapshot().Providers, provider => Assert.Equal(0, provider.TotalRequests));
     }
 
     [Fact]
-    public void ParallelWritesPreserveExactPerProviderTotals()
+    public async Task ParallelWritesPreserveExactPerProviderTotals()
     {
-        var store = CreateStore();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromSeconds(5));
+        using var store = CreateStore();
+        await store.StartAsync(cancellation.Token);
 
-        Parallel.For(0, 10_000, new ParallelOptions { CancellationToken = TestContext.Current.CancellationToken }, index =>
+        var writes = Parallel.ForEachAsync(Enumerable.Range(0, 10_000), cancellation.Token, (index, _) =>
         {
             var source = index % 2 == 0 ? "github" : "devto";
             var observation = (index % 4) switch
@@ -97,8 +167,10 @@ public sealed class InMemoryStatisticsStoreTests
                 _ => Observation(source, 200, AttemptOutcome.Success)
             };
 
-            store.Record(observation);
+            return store.RecordAsync(observation);
         });
+        await writes.WaitAsync(cancellation.Token);
+        await store.StopAsync(cancellation.Token);
 
         var providers = store.GetSnapshot().Providers;
         var github = providers.Single(provider => provider.Source == "github");
@@ -114,14 +186,32 @@ public sealed class InMemoryStatisticsStoreTests
     private static AttemptObservation Observation(string source, int milliseconds, AttemptOutcome outcome)
         => new(source, TimeSpan.FromMilliseconds(milliseconds), outcome, Now);
 
-    private static InMemoryStatisticsStore CreateStore(TimeProvider? clock = null)
+    private static InMemoryStatisticsStore CreateStore(TimeProvider? clock = null, TimeSpan? interval = null)
         => new([new ProviderDescriptor("github", ContentType.Repository), new ProviderDescriptor("devto", ContentType.Article)],
-            clock ?? new TestClock());
+            clock ?? new TestClock(), Options.Create(new StatisticsOptions { SnapshotInterval = interval ?? TimeSpan.FromSeconds(1) }));
 
     private sealed class TestClock : TimeProvider
     {
         public DateTimeOffset UtcNow { get; set; } = Now;
+        public TaskCompletionSource<TestTimer> TimerCreated { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override DateTimeOffset GetUtcNow() => UtcNow;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new TestTimer(callback, state, period);
+            TimerCreated.SetResult(timer);
+            return timer;
+        }
+    }
+
+    private sealed class TestTimer(TimerCallback callback, object? state, TimeSpan period) : ITimer
+    {
+        public TimeSpan Period { get; } = period;
+
+        public void Tick() => callback(state);
+        public bool Change(TimeSpan dueTime, TimeSpan period) => throw new NotSupportedException();
+        public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

@@ -45,7 +45,7 @@ public sealed class StatisticsEndpointTests
         using var discovery = await client.GetAsync("/api/discovery?topic=dotnet&sources=github", cancellationToken);
         Assert.Equal(discoveryUnavailable ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK, discovery.StatusCode);
 
-        using var after = await GetStatisticsAsync(client, cancellationToken);
+        using var after = await WaitForGitHubAttemptAsync(client, cancellationToken);
         foreach (var provider in after.RootElement.GetProperty("providers").EnumerateArray())
         {
             var contacted = provider.GetProperty("source").GetString() == "github";
@@ -54,6 +54,25 @@ public sealed class StatisticsEndpointTests
             Assert.Equal(contacted ? failures : 0, provider.GetProperty("failureCount").GetInt64());
             Assert.Equal(contacted ? 1 : 0, new[] { "fast", "average", "slow" }
                 .Sum(bucket => provider.GetProperty(bucket).GetProperty("count").GetInt64()));
+        }
+    }
+
+    private static async Task<JsonDocument> WaitForGitHubAttemptAsync(HttpClient client, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+
+        while (true)
+        {
+            var snapshot = await GetStatisticsAsync(client, timeout.Token);
+            var github = snapshot.RootElement.GetProperty("providers").EnumerateArray()
+                .Single(provider => provider.GetProperty("source").GetString() == "github");
+
+            if (github.GetProperty("totalRequests").GetInt64() > 0)
+                return snapshot;
+
+            snapshot.Dispose();
+            await Task.Delay(25, timeout.Token);
         }
     }
 

@@ -29,7 +29,7 @@ public sealed class RequestMetricsHandler(
         finally
         {
             var duration = timeProvider.GetElapsedTime(started);
-            recorder.Record(new AttemptObservation(source, duration, outcome, timeProvider.GetUtcNow()));
+            await recorder.RecordAsync(new AttemptObservation(source, duration, outcome, timeProvider.GetUtcNow()));
         }
     }
 }

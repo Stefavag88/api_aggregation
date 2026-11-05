@@ -226,9 +226,9 @@ Bound L1 cache memory through a dedicated size-limited cache with entry sizes an
 
 ## Statistics storage
 
-Use a singleton in-memory store with one accumulator per registered provider. A short per-provider lock protects count, accumulated duration, outcome counts, and bucket totals together; return immutable snapshots. Never hold locks during network I/O. Avoid storing every observation indefinitely.
+Use a singleton in-memory store and a bounded channel with one consumer. The consumer owns the provider accumulators and publishes immutable snapshots at the configurable `Statistics:SnapshotInterval` when counts change. Recording waits asynchronously if the channel fills. Graceful shutdown drains accepted observations.
 
-Counters cover the current process lifetime and reset on restart. Provider snapshots are internally consistent; the overall response need not be a globally atomic snapshot across all providers. Document per-instance statistics even though content caches are shared.
+Counters cover the current process lifetime and reset on restart. A snapshot reflects the observations processed by its publication time, so recent attempts can appear on the next publication. Document per-instance statistics even though content caches are shared.
 
 Keep measurement inside the retry pipeline and immediately around actual transport attempts so attempts are neither missed nor double-counted. Record attempts that reached transport and were canceled with a canceled outcome, including their elapsed duration. Circuit-breaker rejection before transport creates no sample.
 

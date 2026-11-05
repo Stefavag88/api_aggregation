@@ -128,6 +128,15 @@ and cache access. Fast is below 100 ms, average is 100 through 200 ms inclusive,
 and slow is above 200 ms. An empty bucket has a null mean. Counters are local to
 each process and reset on restart.
 
+A background worker drains a bounded channel and publishes a new snapshot on
+the configured interval when counts have changed. `snapshotAt` is the publication
+time. Recent attempts may appear on the next refresh. Set
+`Statistics:SnapshotInterval` in `appsettings.json` or use
+`Statistics__SnapshotInterval=00:00:05` for a five-second interval. The default
+is one second. Restart the API to apply a change. When the channel fills,
+recording waits asynchronously for space. This wait is excluded from the measured
+latency. On graceful shutdown the worker drains observations it has accepted.
+
 Example response with only GitHub enabled:
 
 ```json
