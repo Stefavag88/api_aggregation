@@ -1,6 +1,6 @@
-using System.Collections.Immutable;
 using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Domain.Discovery;
+using System.Collections.Immutable;
 
 namespace ApiAggregation.Api.Features.Discovery;
 
