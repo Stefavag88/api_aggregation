@@ -1,8 +1,11 @@
 using ApiAggregation.Application.Features.Discovery;
+using ApiAggregation.Application.Features.Statistics;
+using ApiAggregation.Infrastructure.Http;
 using ApiAggregation.Infrastructure.Providers;
 using ApiAggregation.Infrastructure.Providers.DevTo;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.Infrastructure.Providers.HackerNews;
+using ApiAggregation.Infrastructure.Statistics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -17,6 +20,9 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<InMemoryStatisticsStore>();
+        services.AddSingleton<IStatisticsReader>(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
+        services.AddSingleton<IRequestStatisticsRecorder>(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
         AddGitHub(services, configuration.GetSection(GitHubOptions.SectionName));
         AddDevTo(services, configuration.GetSection(DevToOptions.SectionName));
         AddHackerNews(services, configuration.GetSection(HackerNewsOptions.SectionName));
@@ -94,7 +100,11 @@ public static class DependencyInjection
             {
                 AutomaticDecompression = DecompressionMethods.All,
                 AllowAutoRedirect = false
-            });
+            })
+            .AddHttpMessageHandler(provider => new RequestMetricsHandler(
+                descriptor.Name,
+                provider.GetRequiredService<IRequestStatisticsRecorder>(),
+                provider.GetRequiredService<TimeProvider>()));
 
         services.AddSingleton(descriptor);
         services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(

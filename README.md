@@ -3,7 +3,8 @@
 An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness and discovery, shared Result
 primitives, validated queries, and concurrent aggregation across GitHub, DEV,
-and Hacker News. Statistics, caching, and authentication will follow in later increments.
+and Hacker News. The statistics endpoint reports outbound attempts per provider.
+Caching and authentication will follow in later increments.
 
 ## Local setup
 
@@ -112,3 +113,41 @@ Counts describe the bounded retrieved candidates, not total upstream matches.
 Validation returns 400 ProblemDetails with grouped `errors` and coded
 `validationErrors`; total unavailability returns 503 with `providers` reports.
 Unexpected failures return 500 with a trace ID and no exception details.
+
+## HTTP statistics endpoint
+
+`GET /api/statistics` returns counts and mean response times in milliseconds for
+every enabled provider, including providers with zero attempts. Each outbound
+HTTP attempt counts once. A 2xx response counts as a transport success even if
+body parsing later fails. Non-2xx responses and transport exceptions count as
+failures, and in-flight cancellations have their own count.
+
+Latency measures the time from transport entry to response headers, failure, or
+cancellation. It excludes body reading and parsing, aggregation, retry delays,
+and cache access. Fast is below 100 ms, average is 100 through 200 ms inclusive,
+and slow is above 200 ms. An empty bucket has a null mean. Counters are local to
+each process and reset on restart.
+
+Example response with only GitHub enabled:
+
+```json
+{
+  "startedAt": "2026-11-05T10:00:00Z",
+  "snapshotAt": "2026-11-05T10:00:03Z",
+  "measurementScope": "transportToHeaders",
+  "counterScope": "process",
+  "providers": [
+    {
+      "source": "github",
+      "totalRequests": 1,
+      "successCount": 1,
+      "failureCount": 0,
+      "canceledCount": 0,
+      "averageResponseTimeMs": 135,
+      "fast": { "count": 0, "averageResponseTimeMs": null },
+      "average": { "count": 1, "averageResponseTimeMs": 135 },
+      "slow": { "count": 0, "averageResponseTimeMs": null }
+    }
+  ]
+}
+```

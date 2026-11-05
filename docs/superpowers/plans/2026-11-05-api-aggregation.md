@@ -244,15 +244,15 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `RequestMetricsHandler(string source, IRequestStatisticsRecorder recorder, TimeProvider timeProvider) : DelegatingHandler` measures `SendAsync` with monotonic timestamps. `StatisticsController(IStatisticsReader reader).Get(): ActionResult<StatisticsResponse>` serves `/api/statistics`; response explicitly reports the `transportToHeaders` measurement scope and process-local counters.
 
-- [ ] Write transport tests for 2xx/non-2xx/transport exception/cancellation, asserting exactly one observation and elapsed duration from the fake TimeProvider. Delayed body consumption must not change header-duration measurement. HTTP tests assert all providers appear before any calls and only contacted providers increment. `RecordsCanceledAttemptExactlyOnce` asserts:
+- [x] Write transport tests for 2xx/non-2xx/transport exception/cancellation, asserting exactly one observation and elapsed duration from the fake TimeProvider. Delayed body consumption must not change header-duration measurement. HTTP tests assert all providers appear before any calls and only contacted providers increment. `RecordsCanceledAttemptExactlyOnce` asserts:
   ```csharp
   Assert.Single(observations);
   Assert.Equal(AttemptOutcome.Canceled, observations[0].Outcome);
   ```
-- [ ] Run **Unit / RequestMetricsHandlerTests** and **Integration / StatisticsEndpointTests**; confirm missing behavior.
-- [ ] Implement the handler immediately outside the actual transport, inside future retries/timeouts, recording in a single completion/finally path. 2xx is transport success even if later parsing fails. Register one store instance for both interfaces. Map immutable statistics to HTTP contracts with null averages retained.
-- [ ] Run **Unit all** and **Integration all**. Document that latency excludes body parsing, backoff, cache access, and aggregation; add a statistics request/response example.
-- [ ] Commit: `feat: expose measured external request statistics`.
+- [x] Run **Unit / RequestMetricsHandlerTests** and **Integration / StatisticsEndpointTests**; confirm missing behavior.
+- [x] Implement the handler immediately outside the actual transport, inside future retries/timeouts, recording in a single completion/finally path. 2xx is transport success even if later parsing fails. Register one store instance for both interfaces. Map immutable statistics to HTTP contracts with null averages retained.
+- [x] Run **Unit all** and **Integration all**. Document that latency excludes body parsing, backoff, cache access, and aggregation; add a statistics request/response example.
+- [x] Commit: `feat: expose measured external request statistics`.
 
 ## Task 12: Add bounded retries and provider deadlines
 
