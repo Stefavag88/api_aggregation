@@ -1,0 +1,10 @@
+[
+  {
+    "id": 123,
+    "title": "Building with .NET",
+    "url": "https://dev.to/example/building-with-dotnet",
+    "description": "A sample article",
+    "published_at": "2026-01-02T04:04:05+01:00",
+    "tag_list": ["dotnet", "csharp"]
+  }
+]

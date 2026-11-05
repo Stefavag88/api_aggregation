@@ -196,11 +196,11 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `DevToClient(HttpClient httpClient)` implements the same raw client port with descriptor `devto/Article`; base address `https://dev.to/`. Private DTOs map article id/title/url/description/published_at/tag_list.
 
-- [ ] Write request/mapping tests for `/api/articles?tag=dotnet&per_page=30&page=1`, the documented Forem v1 accept header, no required API key, valid empty arrays, malformed root, mixed valid/invalid items, and entirely unusable items. `UsesExactTagMatching` asserts the outgoing `tag` is `dotnet` and no unsupported free-text query parameter is sent; `MapsPublishedDate` asserts the fixture's exact UTC timestamp.
-- [ ] Run **Unit / DevToClientTests**; confirm absence.
-- [ ] Implement the client and register it alongside GitHub. Apply the same body limit, cancellation, and response-acceptance rules without sharing provider-specific DTOs. Update HTTP integration tests to exercise both registered providers through primary-handler stubs.
-- [ ] Run **Unit all** and **Integration all**; document exact-tag semantics and empty-tag behavior.
-- [ ] Commit: `feat: integrate DEV article discovery`.
+- [x] Write request/mapping tests for `/api/articles?tag=dotnet&per_page=30&page=1`, the documented Forem v1 accept header, no required API key, valid empty arrays, malformed root, mixed valid/invalid items, and entirely unusable items. `UsesExactTagMatching` asserts the outgoing `tag` is `dotnet` and no unsupported free-text query parameter is sent; `MapsPublishedDate` asserts the fixture's exact UTC timestamp.
+- [x] Run **Unit / DevToClientTests**; confirm absence.
+- [x] Implement the client and register it alongside GitHub. Apply the same body limit, cancellation, and response-acceptance rules without sharing provider-specific DTOs. Update HTTP integration tests to exercise both registered providers through primary-handler stubs.
+- [x] Run **Unit all** and **Integration all**; document exact-tag semantics and empty-tag behavior.
+- [x] Commit: `feat: integrate DEV article discovery`.
 
 ## Task 9: Integrate Hacker News and verify complete fan-out
 

@@ -2,8 +2,8 @@
 
 An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness and discovery, shared Result
-primitives, validated queries, and concurrent aggregation. GitHub is the first
-registered provider. DEV, Hacker News, statistics, caching, and authentication
+primitives, validated queries, and concurrent aggregation across GitHub and DEV.
+Hacker News, statistics, caching, and authentication
 will follow in later increments.
 
 ## Local setup
@@ -18,7 +18,7 @@ Invoke-RestMethod http://localhost:5080/health/live
 ```
 
 The liveness endpoint returns HTTP 200 with `{"status":"healthy"}`.
-Liveness works without external services or credentials. Discovery calls GitHub.
+Liveness works without external services or credentials. Discovery calls the selected providers.
 
 ## Structure
 
@@ -43,7 +43,7 @@ dotnet test tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTest
 
 Tests use xUnit v3's `mtp-off` package with the VSTest adapter so this command
 works consistently with .NET 10. Integration tests host the real MVC pipeline and
-stub GitHub at the HTTP transport. Smoke tests arrive later.
+stub provider responses at the HTTP transport. Smoke tests arrive later.
 
 See the [design](docs/superpowers/specs/2026-11-05-api-aggregation-design.md) and
 [implementation plan](docs/superpowers/plans/2026-11-05-api-aggregation.md).
@@ -63,10 +63,10 @@ failures appear in reports; only total unavailability produces a failed Result.
 
 ## HTTP discovery endpoint
 
-`GET /api/discovery?topic=dotnet&sources=github&sortBy=date&sortDirection=desc&limit=30`
+`GET /api/discovery?topic=dotnet&sources=github,devto&sortBy=date&sortDirection=desc&limit=30`
 
 Optional filters: `type=repository|article|discussion`, `from` and `to` (RFC 3339).
-Omit `sources` to search all registered providers. Currently `github` is the only source.
+Omit `sources` to search all enabled providers. The available source names are `github` and `devto`.
 
 GitHub searches public repositories using the topic as a search term and retrieves
 up to 30 candidates from the first page. Repository dates come from `created_at`.
@@ -79,6 +79,14 @@ Set `Providers:GitHub:Enabled` to `false` there or set the environment variable
 `Providers__GitHub__Enabled=false`, then restart the API. Requests that explicitly
 select `sources=github` then return 400. Requests without a source filter use the
 remaining enabled providers and return 503 if none are available.
+
+DEV uses the topic as an exact tag and fetches up to 30 articles from the first
+page. Article dates come from `published_at`. A tag with no matches returns a
+successful empty result. The public articles endpoint needs no API key.
+See the [Forem API reference](https://developers.forem.com/api/v1#tag/articles/operation/getArticles).
+
+DEV is enabled by default. Set `Providers:DevTo:Enabled` to `false` in
+`appsettings.json` or set `Providers__DevTo__Enabled=false`, then restart the API.
 
 Successful responses (including partial or empty results) use HTTP 200:
 

@@ -1,5 +1,6 @@
 using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Infrastructure.Providers;
+using ApiAggregation.Infrastructure.Providers.DevTo;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ public static class DependencyInjection
     {
         services.TryAddSingleton(TimeProvider.System);
         AddGitHub(services, configuration.GetSection(GitHubOptions.SectionName));
+        AddDevTo(services, configuration.GetSection(DevToOptions.SectionName));
 
         return services;
     }
@@ -51,6 +53,36 @@ public static class DependencyInjection
         services.AddSingleton(GitHubClient.Metadata);
         services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(
             provider.GetRequiredService<GitHubClient>(),
+            provider.GetRequiredService<TimeProvider>()));
+    }
+
+    private static void AddDevTo(IServiceCollection services, IConfiguration configuration)
+    {
+        if (!configuration.GetValue(nameof(DevToOptions.Enabled), defaultValue: true))
+            return;
+
+        services.AddOptions<DevToOptions>()
+            .Bind(configuration)
+            .Validate(DevToOptions.HasValidBaseAddress, "The DEV base address must be an HTTPS origin.")
+            .ValidateOnStart();
+
+        services.AddHttpClient<DevToClient>((provider, client) =>
+            {
+                var options = provider.GetRequiredService<IOptions<DevToOptions>>().Value;
+                client.BaseAddress = new Uri(options.BaseAddress);
+                client.Timeout = TimeSpan.FromSeconds(5);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("ApiAggregationService/1.0");
+                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.forem.api-v1+json");
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AutomaticDecompression = DecompressionMethods.All,
+                AllowAutoRedirect = false
+            });
+
+        services.AddSingleton(DevToClient.Metadata);
+        services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(
+            provider.GetRequiredService<DevToClient>(),
             provider.GetRequiredService<TimeProvider>()));
     }
 }
