@@ -35,27 +35,15 @@ public static class DependencyInjection
             .Validate(GitHubOptions.HasValidToken, "The GitHub token contains invalid characters.")
             .ValidateOnStart();
 
-        services.AddHttpClient<GitHubClient>((provider, client) =>
+        AddProviderClient<GitHubClient, GitHubOptions>(
+            services,
+            GitHubClient.Metadata,
+            "application/vnd.github+json",
+            static (client, options) =>
             {
-                var options = provider.GetRequiredService<IOptions<GitHubOptions>>().Value;
-                client.BaseAddress = new Uri(options.BaseAddress);
-                client.Timeout = TimeSpan.FromSeconds(5);
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("ApiAggregationService/1.0");
-                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-
                 if (!string.IsNullOrEmpty(options.Token))
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.Token);
-            })
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-            {
-                AutomaticDecompression = DecompressionMethods.All,
-                AllowAutoRedirect = false
             });
-
-        services.AddSingleton(GitHubClient.Metadata);
-        services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(
-            provider.GetRequiredService<GitHubClient>(),
-            provider.GetRequiredService<TimeProvider>()));
     }
 
     private static void AddDevTo(IServiceCollection services, IConfiguration configuration)
@@ -68,24 +56,7 @@ public static class DependencyInjection
             .Validate(ProviderOptions.HasValidBaseAddress, "The DEV base address must be an HTTPS origin.")
             .ValidateOnStart();
 
-        services.AddHttpClient<DevToClient>((provider, client) =>
-            {
-                var options = provider.GetRequiredService<IOptions<DevToOptions>>().Value;
-                client.BaseAddress = new Uri(options.BaseAddress);
-                client.Timeout = TimeSpan.FromSeconds(5);
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("ApiAggregationService/1.0");
-                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.forem.api-v1+json");
-            })
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-            {
-                AutomaticDecompression = DecompressionMethods.All,
-                AllowAutoRedirect = false
-            });
-
-        services.AddSingleton(DevToClient.Metadata);
-        services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(
-            provider.GetRequiredService<DevToClient>(),
-            provider.GetRequiredService<TimeProvider>()));
+        AddProviderClient<DevToClient, DevToOptions>(services, DevToClient.Metadata, "application/vnd.forem.api-v1+json");
     }
 
     private static void AddHackerNews(IServiceCollection services, IConfiguration configuration)
@@ -98,13 +69,26 @@ public static class DependencyInjection
             .Validate(ProviderOptions.HasValidBaseAddress, "The Hacker News base address must be an HTTPS origin.")
             .ValidateOnStart();
 
-        services.AddHttpClient<HackerNewsClient>((provider, client) =>
+        AddProviderClient<HackerNewsClient, HackerNewsOptions>(services, HackerNewsClient.Metadata, "application/json");
+    }
+
+    private static void AddProviderClient<TClient, TOptions>(
+        IServiceCollection services,
+        ProviderDescriptor descriptor,
+        string accept,
+        Action<HttpClient, TOptions>? configureClient = null)
+        where TClient : class, IExternalContentClient
+        where TOptions : ProviderOptions
+    {
+        services.AddHttpClient<TClient>((provider, client) =>
             {
-                var options = provider.GetRequiredService<IOptions<HackerNewsOptions>>().Value;
+                var options = provider.GetRequiredService<IOptions<TOptions>>().Value;
                 client.BaseAddress = new Uri(options.BaseAddress);
                 client.Timeout = TimeSpan.FromSeconds(5);
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("ApiAggregationService/1.0");
-                client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+                client.DefaultRequestHeaders.Accept.ParseAdd(accept);
+
+                configureClient?.Invoke(client, options);
             })
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
             {
@@ -112,9 +96,9 @@ public static class DependencyInjection
                 AllowAutoRedirect = false
             });
 
-        services.AddSingleton(HackerNewsClient.Metadata);
+        services.AddSingleton(descriptor);
         services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(
-            provider.GetRequiredService<HackerNewsClient>(),
+            provider.GetRequiredService<TClient>(),
             provider.GetRequiredService<TimeProvider>()));
     }
 }
