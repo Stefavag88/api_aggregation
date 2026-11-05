@@ -111,17 +111,17 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `DiscoveryItem` is an immutable record with `string Id, string Source, ContentType Type, string Title, Uri Url, string? Description, DateTimeOffset PublishedAt, ImmutableArray<string> Tags`. `ContentType` has Repository, Article, Discussion. `ProviderDescriptor(string Name, ContentType Type)` identifies registered providers. `DiscoveryQueryInput` carries nullable raw strings for topic/sources/type/from/to/sortBy/sortDirection/limit so timestamps can be validated before permissive framework conversion. `DiscoveryQueryParser.Parse(DiscoveryQueryInput input, IReadOnlyCollection<ProviderDescriptor> providers): Result<DiscoveryQuery>` returns `AppResult.ValidationErrors<DiscoveryQuery>(issues)` for invalid input, preserving field/code/message details under `AppResult.ValidationErrorsMetaKey`. `DiscoveryQuery` contains normalized `Topic`, `ImmutableArray<string> Sources`, nullable `Type/From/To`, typed `SortBy/SortDirection`, and `int Limit`.
 
-- [ ] Write query tests for trimmed/lowercase `" DOTNET "`, defaults (date/desc/30), 1 and 50 character topics, invalid 51-character topics, punctuation/spaces, explicit UTC offsets, missing timestamp offsets, reversed date bounds, empty source segments, unknown source/type/sort, limits 0/91, and source deduplication. Include these assertions in `NormalizesTopicAndAppliesDefaults` after asserting `parsed.IsSuccess` and assigning `query = parsed.Value!`; invalid-query cases assert `!parsed.IsSuccess`, `ResultErrorCode.ValidationError`, and the exact ValidationIssue field/code without expecting an exception:
+- [x] Write query tests for trimmed/lowercase `" DOTNET "`, defaults (date/desc/30), 1 and 50 character topics, invalid 51-character topics, punctuation/spaces, explicit UTC offsets, missing timestamp offsets, reversed date bounds, empty source segments, unknown source/type/sort, limits 0/91, and source deduplication. Include these assertions in `NormalizesTopicAndAppliesDefaults` after asserting `parsed.IsSuccess` and assigning `query = parsed.Value!`; invalid-query cases assert `!parsed.IsSuccess`, `ResultErrorCode.ValidationError`, and the exact ValidationIssue field/code without expecting an exception:
   ```csharp
   Assert.Equal("dotnet", query.Topic);
   Assert.Equal(30, query.Limit);
   Assert.Equal(SortField.Date, query.SortBy);
   Assert.Equal(SortDirection.Desc, query.SortDirection);
   ```
-- [ ] Run **Unit / DiscoveryQueryTests**; confirm the missing contracts/parser cause failure.
-- [ ] Implement these types and parser. Enforce the spec's exact validation rules; reject undefined numeric enum strings, avoid culture-dependent parsing, and retain supplied-source order only for presentation (sorting uses stable source names). Timestamps normalize to UTC. No FluentValidation dependency is needed for this small parser.
-- [ ] Run **Unit all**. Extend the existing CI workflow as needed; the Result task already established unit-test execution. Document query restrictions.
-- [ ] Commit: `feat: define discovery model and query validation`.
+- [x] Run **Unit / DiscoveryQueryTests**; confirm the missing contracts/parser cause failure.
+- [x] Implement these types and parser. Enforce the spec's exact validation rules; reject undefined numeric enum strings, avoid culture-dependent parsing, and retain supplied-source order only for presentation (sorting uses stable source names). Timestamps normalize to UTC. No FluentValidation dependency is needed for this small parser.
+- [x] Run **Unit all**. Extend the existing CI workflow as needed; the Result task already established unit-test execution. Document query restrictions.
+- [x] Commit: `feat: define discovery model and query validation`.
 
 ## Task 4: Implement concurrent aggregation and deterministic results
 

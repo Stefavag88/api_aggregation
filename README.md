@@ -1,9 +1,9 @@
 # Developer Discovery API
 
 An ASP.NET Core API aggregation assignment, built in small, verified increments.
-The current increment provides controller-based liveness and shared Result
-primitives; discovery, providers, statistics, caching, and authentication are
-not implemented yet.
+The current increment provides controller-based liveness, shared Result primitives,
+and validated discovery query contracts. Discovery endpoints, providers, statistics,
+caching, and authentication are not implemented yet.
 
 ## Local setup
 
@@ -44,3 +44,12 @@ works consistently with .NET 10. The integration and smoke projects are still em
 
 See the [design](docs/superpowers/specs/2026-11-05-api-aggregation-design.md) and
 [implementation plan](docs/superpowers/plans/2026-11-05-api-aggregation.md).
+
+## Discovery query contract
+
+Topics are trimmed/lowercased and contain 1-50 ASCII letters, digits, or hyphens,
+starting with a letter or digit (for example `dotnet`, `python`, `csharp`).
+Sources are comma-separated registered names with no empty entries. Dates use
+RFC 3339 with an explicit offset and inclusive bounds. Sorting supports date/title
+and asc/desc; defaults are date descending and a result limit of 30 (range 1-90).
+Invalid input produces structured validation issues rather than exceptions.
