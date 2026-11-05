@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using ApiAggregation.Domain.Common.Results;
 
@@ -5,14 +6,19 @@ namespace ApiAggregation.Application.Features.Discovery;
 
 public sealed class DiscoveryService(IEnumerable<IDiscoveryProvider> providers)
 {
-    private readonly IReadOnlyDictionary<string, IDiscoveryProvider> providersByName =
-        providers.ToDictionary(p => p.Descriptor.Name, StringComparer.Ordinal);
+    private readonly FrozenDictionary<string, IDiscoveryProvider> providersByName =
+        providers.ToFrozenDictionary(p => p.Descriptor.Name, StringComparer.Ordinal);
 
     public async Task<Result<DiscoveryResult>> DiscoverAsync(DiscoveryQuery query, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var outcomes = await Task.WhenAll(query.Sources.Distinct(StringComparer.Ordinal)
-            .Where(providersByName.ContainsKey).Select(async source =>
+
+        var relevantSources = query.Sources
+            .Distinct(StringComparer.Ordinal)
+            .Where(providersByName.ContainsKey)
+            .ToArray();
+
+        var outcomes = await Task.WhenAll(relevantSources.Select(async source =>
                 (Source: source, Result: await providersByName[source].FetchAsync(query.Topic, cancellationToken))));
 
         var reports = outcomes.Select(outcome => outcome.Result.IsSuccess
@@ -20,9 +26,13 @@ public sealed class DiscoveryService(IEnumerable<IDiscoveryProvider> providers)
                 outcome.Result.Value.FetchedAt, outcome.Result.Value.IsIncomplete, null)
             : new ProviderReport(outcome.Source, ProviderStatus.Unavailable, null, false, outcome.Result.Error!.Code))
             .ToImmutableArray();
-        if (!outcomes.Any(o => o.Result.IsSuccess))
+
+        var noneSuccessful = !outcomes.Any(o => o.Result.IsSuccess);
+        if (noneSuccessful)
+        {
             return AppResult.ServiceUnavailable<DiscoveryResult>("discovery.providers_unavailable",
                 new Dictionary<string, object?> { ["providers"] = reports });
+        }
 
         var matches = outcomes.Where(o => o.Result.IsSuccess).SelectMany(o => o.Result.Value!.Items)
             .DistinctBy(i => (i.Source, i.Id))
@@ -39,6 +49,7 @@ public sealed class DiscoveryService(IEnumerable<IDiscoveryProvider> providers)
         };
         var items = sorted.ThenBy(i => i.Source, StringComparer.Ordinal).ThenBy(i => i.Id, StringComparer.Ordinal)
             .Take(query.Limit).ToImmutableArray();
+
         return AppResult.Success(new DiscoveryResult(query.Topic, items, matches.Length, items.Length,
             reports.Any(p => p.Status != ProviderStatus.Fresh || p.IsIncomplete), reports));
     }
