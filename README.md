@@ -7,7 +7,8 @@ and Hacker News. Statistics, caching, and authentication will follow in later in
 
 ## Local setup
 
-Install the .NET SDK specified by `global.json` (10.0.301 or a later 10.0.3xx patch).
+Install a stable .NET 10 SDK version 10.0.301 or later. `global.json` allows newer
+.NET 10 feature bands, such as 10.0.403.
 
 ```powershell
 dotnet restore ApiAggregation.slnx
