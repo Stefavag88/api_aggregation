@@ -26,12 +26,12 @@ public static class DependencyInjection
 
     private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
     {
-        if (!configuration.GetValue(nameof(GitHubOptions.Enabled), defaultValue: true))
+        if (!configuration.GetValue(nameof(ProviderOptions.Enabled), ProviderOptions.EnabledByDefault))
             return;
 
         services.AddOptions<GitHubOptions>()
             .Bind(configuration)
-            .Validate(GitHubOptions.HasValidBaseAddress, "The GitHub base address must be an HTTPS origin.")
+            .Validate(ProviderOptions.HasValidBaseAddress, "The GitHub base address must be an HTTPS origin.")
             .Validate(GitHubOptions.HasValidToken, "The GitHub token contains invalid characters.")
             .ValidateOnStart();
 
@@ -60,12 +60,12 @@ public static class DependencyInjection
 
     private static void AddDevTo(IServiceCollection services, IConfiguration configuration)
     {
-        if (!configuration.GetValue(nameof(DevToOptions.Enabled), defaultValue: true))
+        if (!configuration.GetValue(nameof(ProviderOptions.Enabled), ProviderOptions.EnabledByDefault))
             return;
 
         services.AddOptions<DevToOptions>()
             .Bind(configuration)
-            .Validate(DevToOptions.HasValidBaseAddress, "The DEV base address must be an HTTPS origin.")
+            .Validate(ProviderOptions.HasValidBaseAddress, "The DEV base address must be an HTTPS origin.")
             .ValidateOnStart();
 
         services.AddHttpClient<DevToClient>((provider, client) =>
@@ -90,12 +90,12 @@ public static class DependencyInjection
 
     private static void AddHackerNews(IServiceCollection services, IConfiguration configuration)
     {
-        if (!configuration.GetValue(nameof(HackerNewsOptions.Enabled), defaultValue: true))
+        if (!configuration.GetValue(nameof(ProviderOptions.Enabled), ProviderOptions.EnabledByDefault))
             return;
 
         services.AddOptions<HackerNewsOptions>()
             .Bind(configuration)
-            .Validate(HackerNewsOptions.HasValidBaseAddress, "The Hacker News base address must be an HTTPS origin.")
+            .Validate(ProviderOptions.HasValidBaseAddress, "The Hacker News base address must be an HTTPS origin.")
             .ValidateOnStart();
 
         services.AddHttpClient<HackerNewsClient>((provider, client) =>
