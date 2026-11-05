@@ -20,21 +20,33 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
+
+        AddProviders(services, configuration);
+        AddStatistics(services, configuration);
+
+        return services;
+    }
+
+    private static void AddProviders(IServiceCollection services, IConfiguration configuration)
+    {
+        AddGitHub(services, configuration.GetSection(GitHubOptions.SectionName));
+        AddDevTo(services, configuration.GetSection(DevToOptions.SectionName));
+        AddHackerNews(services, configuration.GetSection(HackerNewsOptions.SectionName));
+    }
+
+    private static void AddStatistics(IServiceCollection services, IConfiguration configuration)
+    {
         services.AddOptions<StatisticsOptions>()
             .Bind(configuration.GetSection(StatisticsOptions.SectionName))
             .Validate(options => options.SnapshotInterval >= TimeSpan.FromMilliseconds(1)
                 && options.SnapshotInterval <= TimeSpan.FromMilliseconds(uint.MaxValue - 1),
                 "Statistics:SnapshotInterval must be between 1 millisecond and the maximum supported timer period.")
             .ValidateOnStart();
+
         services.AddSingleton<InMemoryStatisticsStore>();
         services.AddHostedService(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
         services.AddSingleton<IStatisticsReader>(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
         services.AddSingleton<IRequestStatisticsRecorder>(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
-        AddGitHub(services, configuration.GetSection(GitHubOptions.SectionName));
-        AddDevTo(services, configuration.GetSection(DevToOptions.SectionName));
-        AddHackerNews(services, configuration.GetSection(HackerNewsOptions.SectionName));
-
-        return services;
     }
 
     private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
