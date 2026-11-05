@@ -18,3 +18,4 @@ jobs:
       - run: dotnet restore ApiAggregation.slnx
       - run: dotnet build ApiAggregation.slnx -c Release --no-restore
       - run: dotnet test tests/ApiAggregation.UnitTests/ApiAggregation.UnitTests.csproj -c Release --no-build
+      - run: dotnet test tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTests.csproj -c Release --no-build

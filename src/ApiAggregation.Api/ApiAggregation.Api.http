@@ -1,0 +1,9 @@
+@host = http://localhost:5080
+
+GET {{host}}/health/live
+
+### All registered sources
+GET {{host}}/api/discovery?topic=dotnet&sortBy=date&limit=10
+
+### Invalid topic: 400 without provider calls
+GET {{host}}/api/discovery?topic=c%23
