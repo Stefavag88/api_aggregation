@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ApiAggregation.Domain/ApiAggregation.Domain.csproj" />
+    <Project Path="src/ApiAggregation.Application/ApiAggregation.Application.csproj" />
+    <Project Path="src/ApiAggregation.Infrastructure/ApiAggregation.Infrastructure.csproj" />
+    <Project Path="src/ApiAggregation.Api/ApiAggregation.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ApiAggregation.UnitTests/ApiAggregation.UnitTests.csproj" />
+    <Project Path="tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTests.csproj" />
+    <Project Path="tests/ApiAggregation.SmokeTests/ApiAggregation.SmokeTests.csproj" />
+  </Folder>
+</Solution>

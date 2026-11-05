@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/ApiAggregation.Infrastructure/ApiAggregation.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
