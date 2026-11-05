@@ -129,7 +129,7 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 **Interfaces:** `IDiscoveryProvider.Descriptor: ProviderDescriptor` and `Task<Result<ProviderData>> FetchAsync(string topic, CancellationToken cancellationToken)`. `ProviderData(ImmutableArray<DiscoveryItem> Items, DateTimeOffset FetchedAt, bool IsStale, bool IsIncomplete)` represents usable data only. `ProviderReport` contains Source, Status (ProviderStatus.Fresh/Stale/Unavailable), nullable FetchedAt, IsIncomplete, nullable safe ErrorCode. `DiscoveryResult` contains Topic, Items, MatchedCount, ReturnedCount, IsPartial, and immutable ProviderReport entries. `DiscoveryService(IEnumerable<IDiscoveryProvider> providers).DiscoverAsync(DiscoveryQuery query, CancellationToken cancellationToken): Task<Result<DiscoveryResult>>`. All-provider failure returns `AppResult.ServiceUnavailable<DiscoveryResult>("discovery.providers_unavailable", metadata)` with `providers` reports in metadata; it has no successful DiscoveryResult value.
 
-- [ ] Write `StartsEverySelectedProviderBeforeWaiting` using a gate for each provider: all must signal entry before any is released. Write tests for one unavailable provider, all unavailable, successful empty results, requested-source selection, cancellation, inclusive date/type filters, duplicate `(source,id)` values, ordinal title ordering, tie-breaking, counts before limit, and source-array immutability. In `PreservesSuccessfulResultsOnPartialFailure` assert:
+- [x] Write `StartsEverySelectedProviderBeforeWaiting` using a gate for each provider: all must signal entry before any is released. Write tests for one unavailable provider, all unavailable, successful empty results, requested-source selection, cancellation, inclusive date/type filters, duplicate `(source,id)` values, ordinal title ordering, tie-breaking, counts before limit, and source-array immutability. In `PreservesSuccessfulResultsOnPartialFailure` assert:
   ```csharp
   Assert.True(result.IsSuccess);
   var discovery = result.Value!;
@@ -137,10 +137,10 @@ File paths below are repository-relative. Each type lives in its named file exce
   Assert.Single(discovery.Items);
   Assert.Equal(ProviderStatus.Unavailable, discovery.Providers.Single(p => p.Source == "devto").Status);
   ```
-- [ ] Run **Unit / DiscoveryServiceTests**; confirm the service is absent.
-- [ ] Implement the service with concurrent async operations and deterministic post-fetch processing. Expected provider failures are Result failures; pair each result with its provider descriptor to build reports. Partial success and valid empty responses return successful Results; all-provider failure (or no registered providers during scaffolding) returns ServiceUnavailable with safe provider reports. Add an explicit all-failed assertion for `!result.IsSuccess`, `result.Value is null`, and `result.Error.StatusCode == ResultErrorCode.ServiceUnavailable`. Unexpected programming exceptions still propagate to HTTP 500. Filter and sort copies, never shared cached storage.
-- [ ] Run **Unit all**. Verify the gate test proves overlap and makes no flaky elapsed-speed assertion.
-- [ ] Commit: `feat: aggregate provider results concurrently`.
+- [x] Run **Unit / DiscoveryServiceTests**; confirm the service is absent.
+- [x] Implement the service with concurrent async operations and deterministic post-fetch processing. Expected provider failures are Result failures; pair each result with its provider descriptor to build reports. Partial success and valid empty responses return successful Results; all-provider failure (or no registered providers during scaffolding) returns ServiceUnavailable with safe provider reports. Add an explicit all-failed assertion for `!result.IsSuccess`, `result.Value is null`, and `result.Error.StatusCode == ResultErrorCode.ServiceUnavailable`. Unexpected programming exceptions still propagate to HTTP 500. Filter and sort copies, never shared cached storage.
+- [x] Run **Unit all**. Verify the gate test proves overlap and makes no flaky elapsed-speed assertion.
+- [x] Commit: `feat: aggregate provider results concurrently`.
 
 ## Task 5: Expose discovery through MVC and establish integration tests
 

@@ -2,7 +2,7 @@
 
 An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness, shared Result primitives,
-and validated discovery query contracts. Discovery endpoints, providers, statistics,
+validated discovery query contracts, and concurrent aggregation. Discovery endpoints, providers, statistics,
 caching, and authentication are not implemented yet.
 
 ## Local setup
@@ -53,3 +53,7 @@ Sources are comma-separated registered names with no empty entries. Dates use
 RFC 3339 with an explicit offset and inclusive bounds. Sorting supports date/title
 and asc/desc; defaults are date descending and a result limit of 30 (range 1-90).
 Invalid input produces structured validation issues rather than exceptions.
+
+Aggregation starts selected providers concurrently, preserves partial successes,
+and applies filtering, deterministic sorting, and limits after retrieval. Provider
+failures appear in reports; only total unavailability produces a failed Result.
