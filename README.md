@@ -74,6 +74,12 @@ Public search works without credentials. Set `Providers__GitHub__Token` in the
 API process environment to use an optional GitHub token for authenticated requests.
 See the [GitHub repository search documentation](https://docs.github.com/en/rest/search/search#search-repositories).
 
+GitHub is enabled by default in `src/ApiAggregation.Api/appsettings.json`.
+Set `Providers:GitHub:Enabled` to `false` there or set the environment variable
+`Providers__GitHub__Enabled=false`, then restart the API. Requests that explicitly
+select `sources=github` then return 400. Requests without a source filter use the
+remaining enabled providers and return 503 if none are available.
+
 Successful responses (including partial or empty results) use HTTP 200:
 
 ```json

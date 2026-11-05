@@ -22,12 +22,11 @@ public static class DependencyInjection
 
     private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
     {
+        if (!configuration.GetValue(nameof(GitHubOptions.Enabled), defaultValue: true))
+            return;
+
         services.AddOptions<GitHubOptions>()
-            .Configure(options =>
-            {
-                options.BaseAddress = configuration[nameof(GitHubOptions.BaseAddress)] ?? options.BaseAddress;
-                options.Token = configuration[nameof(GitHubOptions.Token)];
-            })
+            .Bind(configuration)
             .Validate(GitHubOptions.HasValidBaseAddress, "The GitHub base address must be an HTTPS origin.")
             .Validate(GitHubOptions.HasValidToken, "The GitHub token contains invalid characters.")
             .ValidateOnStart();

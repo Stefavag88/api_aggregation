@@ -4,6 +4,7 @@ public sealed class GitHubOptions
 {
     public const string SectionName = "Providers:GitHub";
 
+    public bool Enabled { get; set; } = true;
     public string BaseAddress { get; set; } = "https://api.github.com/";
     public string? Token { get; set; }
 

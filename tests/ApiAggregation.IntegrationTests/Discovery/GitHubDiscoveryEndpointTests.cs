@@ -1,9 +1,11 @@
+using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.IntegrationTests.Support;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using System.Net;
 using System.Text.Json;
 
@@ -11,6 +13,24 @@ namespace ApiAggregation.IntegrationTests.Discovery;
 
 public sealed class GitHubDiscoveryEndpointTests
 {
+    [Fact]
+    public async Task DisabledGitHubIsAbsentFromDiscoveryAndProviderMetadata()
+    {
+        await using var factory = new DisabledGitHubFactory();
+        using var client = factory.CreateClient();
+        using var scope = factory.Services.CreateScope();
+        Assert.Null(scope.ServiceProvider.GetService<GitHubClient>());
+        Assert.DoesNotContain(scope.ServiceProvider.GetServices<IDiscoveryProvider>(), provider => provider.Descriptor.Name == "github");
+        Assert.DoesNotContain(scope.ServiceProvider.GetServices<ProviderDescriptor>(), descriptor => descriptor.Name == "github");
+
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var response = await client.GetAsync("/api/discovery?topic=dotnet&sources=github", cancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        Assert.True(json.RootElement.GetProperty("errors").TryGetProperty("sources", out _));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("integration-test-token")]
@@ -63,5 +83,20 @@ public sealed class GitHubDiscoveryEndpointTests
         var provider = Assert.Single(json.RootElement.GetProperty("providers").EnumerateArray());
         Assert.Equal("github", provider.GetProperty("source").GetString());
         Assert.Equal("fresh", provider.GetProperty("status").GetString());
+    }
+
+    private sealed class DisabledGitHubFactory : WebApplicationFactory<Program>
+    {
+        protected override IHost CreateHost(IHostBuilder builder)
+        {
+            builder.ConfigureHostConfiguration(config => config.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    [$"{GitHubOptions.SectionName}:Enabled"] = "false",
+                    [$"{GitHubOptions.SectionName}:BaseAddress"] = "invalid"
+                }));
+
+            return base.CreateHost(builder);
+        }
     }
 }
