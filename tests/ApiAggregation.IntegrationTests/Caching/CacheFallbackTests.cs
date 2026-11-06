@@ -95,6 +95,31 @@ public sealed class CacheFallbackTests
     }
 
     [Fact]
+    public async Task ServesStaleSnapshotWithoutContactingProviderOnCooldown()
+    {
+        var clock = new TestClock();
+        var attempts = 0;
+        await using var host = new WebApplicationFactory<Program>();
+        await using var factory = CreateFactory(host, clock, () => ++attempts == 1
+            ? Response(HttpStatusCode.OK, Repository)
+            : Response(HttpStatusCode.TooManyRequests, ""));
+        using var client = factory.CreateClient();
+        using var first = await DiscoverAsync(client, HttpStatusCode.OK);
+        var fetchedAt = Report(first).GetProperty("fetchedAt").GetDateTimeOffset();
+        clock.Advance(TimeSpan.FromMinutes(5));
+        await ExpireAsync(factory);
+
+        using var limited = await client.GetAsync("/api/discovery?topic=python&sources=github", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, limited.StatusCode);
+        using var stale = await DiscoverAsync(client, HttpStatusCode.OK);
+
+        Assert.True(stale.RootElement.GetProperty("isPartial").GetBoolean());
+        Assert.Equal("stale", Report(stale).GetProperty("status").GetString());
+        Assert.Equal(fetchedAt, Report(stale).GetProperty("fetchedAt").GetDateTimeOffset());
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
     public async Task IndependentHostsHaveIndependentCaches()
     {
         var clock = new TestClock();

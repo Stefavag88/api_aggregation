@@ -31,6 +31,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<ProviderRateLimitState>();
         services.AddProviderCaching(configuration);
         services.AddOptions<ProviderResilienceOptions>()
             .Bind(configuration.GetSection(ProviderResilienceOptions.SectionName))
@@ -77,7 +78,7 @@ public static class DependencyInjection
             .Validate(GitHubOptions.HasValidToken, "The GitHub token contains invalid characters.")
             .ValidateOnStart();
 
-        AddProviderClient<GitHubClient, GitHubOptions>(
+        AddProviderClient<GitHubClient, GitHubOptions, GitHubRateLimitPolicy>(
             services,
             GitHubClient.Metadata,
             "application/vnd.github+json",
@@ -98,7 +99,10 @@ public static class DependencyInjection
             .Validate(ProviderOptions.HasValidBaseAddress, "The DEV base address must be an HTTPS origin.")
             .ValidateOnStart();
 
-        AddProviderClient<DevToClient, DevToOptions>(services, DevToClient.Metadata, "application/vnd.forem.api-v1+json");
+        AddProviderClient<DevToClient, DevToOptions, DefaultRateLimitPolicy>(
+            services,
+            DevToClient.Metadata,
+            "application/vnd.forem.api-v1+json");
     }
 
     private static void AddHackerNews(IServiceCollection services, IConfiguration configuration)
@@ -111,17 +115,23 @@ public static class DependencyInjection
             .Validate(ProviderOptions.HasValidBaseAddress, "The Hacker News base address must be an HTTPS origin.")
             .ValidateOnStart();
 
-        AddProviderClient<HackerNewsClient, HackerNewsOptions>(services, HackerNewsClient.Metadata, "application/json");
+        AddProviderClient<HackerNewsClient, HackerNewsOptions, DefaultRateLimitPolicy>(
+            services,
+            HackerNewsClient.Metadata,
+            "application/json");
     }
 
-    private static void AddProviderClient<TClient, TOptions>(
+    private static void AddProviderClient<TClient, TOptions, TRateLimitPolicy>(
         IServiceCollection services,
         ProviderDescriptor descriptor,
         string accept,
         Action<HttpClient, TOptions>? configureClient = null)
         where TClient : class, IExternalContentClient
         where TOptions : ProviderOptions
+        where TRateLimitPolicy : class, IRateLimitPolicy
     {
+        services.TryAddSingleton<TRateLimitPolicy>();
+
         var builder = services.AddHttpClient<TClient>((provider, client) =>
             {
                 var options = provider.GetRequiredService<IOptions<TOptions>>().Value;
@@ -139,6 +149,11 @@ public static class DependencyInjection
             });
 
         ProviderHttpPipeline.Configure(builder, descriptor.Name)
+            .AddHttpMessageHandler(provider => new ProviderRateLimitHandler(
+                descriptor.Name,
+                provider.GetRequiredService<TRateLimitPolicy>(),
+                provider.GetRequiredService<ProviderRateLimitState>(),
+                provider.GetRequiredService<TimeProvider>()))
             .AddHttpMessageHandler(provider => new RequestMetricsHandler(
                 descriptor.Name,
                 provider.GetRequiredService<IRequestStatisticsRecorder>(),

@@ -14,7 +14,8 @@ namespace ApiAggregation.Infrastructure.Providers.GitHub;
 /// Searches GitHub for public repositories matching a topic and maps the first page to discovery items.
 /// </summary>
 /// <param name="httpClient">The HTTP client configured for this provider.</param>
-public sealed class GitHubClient(HttpClient httpClient) : IExternalContentClient
+/// <param name="rateLimitPolicy">The policy used to identify GitHub quota failures.</param>
+public sealed class GitHubClient(HttpClient httpClient, GitHubRateLimitPolicy rateLimitPolicy) : IExternalContentClient
 {
     private const int PageSize = 30;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -120,15 +121,13 @@ public sealed class GitHubClient(HttpClient httpClient) : IExternalContentClient
             repository.Topics is null ? [] : [.. repository.Topics.OfType<string>()]);
     }
 
-    private static AppError ClassifyFailure(HttpResponseMessage response)
+    private AppError ClassifyFailure(HttpResponseMessage response)
     {
-        var quotaExhausted = response.Headers.TryGetValues("X-RateLimit-Remaining", out var remaining)
-            && remaining.Any(value => value.Trim() == "0");
+        if (rateLimitPolicy.IsRateLimited(response))
+            return ProviderErrors.RateLimited;
 
         return response.StatusCode switch
         {
-            HttpStatusCode.TooManyRequests => ProviderErrors.RateLimited,
-            HttpStatusCode.Forbidden when quotaExhausted || response.Headers.RetryAfter is not null => ProviderErrors.RateLimited,
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => ProviderErrors.Unauthorized,
             _ => ProviderErrors.UpstreamError
         };

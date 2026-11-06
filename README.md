@@ -5,8 +5,8 @@ The current increment provides controller-based liveness and discovery, shared R
 primitives, validated queries, and concurrent aggregation across GitHub, DEV,
 and Hacker News. The statistics endpoint reports outbound attempts per provider.
 Provider results are cached in memory with bounded stale fallback. Polly handles
-transient HTTP failures. Rate-limit cooldowns, circuit breaking, authentication,
-and live smoke tests remain planned increments.
+transient HTTP failures. Provider cooldowns honor upstream rate limits. Circuit
+breaking, authentication, and live smoke tests remain planned increments.
 
 ## Local setup
 
@@ -129,6 +129,16 @@ exponential backoff with jitter. Both attempts, the retry delay, and body
 processing consume the caller's five-second provider budget. Each retry counts
 as a separate transport attempt. A transport canceled by its attempt timeout
 counts in the canceled bucket.
+
+A provider enters cooldown after HTTP 429 or a GitHub HTTP 403 with a quota
+signal. The deadline uses the latest valid future value from `Retry-After`
+or, for GitHub, `X-RateLimit-Reset`. Without a usable deadline, the cooldown
+lasts 60 seconds. An ordinary HTTP 403 is reported as `unauthorized`.
+
+Cooldowns apply to all topics for that provider in the current process.
+While blocked, a fetch returns `rate_limited` and adds zero transport
+attempts to statistics. Discovery can serve an eligible cached snapshot,
+and the other providers continue independently.
 
 ## Provider caching
 
