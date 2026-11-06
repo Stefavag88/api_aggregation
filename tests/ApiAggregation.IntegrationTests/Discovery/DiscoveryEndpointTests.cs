@@ -1,9 +1,14 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
+using ApiAggregation.Api.ErrorHandling;
 using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Domain.Common.Results;
 using ApiAggregation.Domain.Discovery;
 using ApiAggregation.IntegrationTests.Support;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace ApiAggregation.IntegrationTests.Discovery;
 
@@ -16,8 +21,14 @@ public sealed class DiscoveryEndpointTests
     [InlineData(true)]
     public async Task SuccessHasStablePublicContract(bool partial)
     {
-        var data = Empty with { Items = [new("1", "github", ContentType.Repository, "example",
-            new Uri("https://example.test/repo"), null, Empty.FetchedAt, ["dotnet"])] };
+        var data = Empty with
+        {
+            Items =
+            [
+                new("1", "github", ContentType.Repository, "example",
+                    new Uri("https://example.test/repo"), null, Empty.FetchedAt, ["dotnet"])
+            ]
+        };
         await using var factory = new ApiFactory(new Provider("github", data),
             new Provider("devto", partial ? AppResult.ServiceUnavailable<ProviderData>("provider.timeout") : Empty));
         using var client = factory.CreateClient();
@@ -68,6 +79,32 @@ public sealed class DiscoveryEndpointTests
         Assert.True(json.RootElement.TryGetProperty("validationErrors", out _));
     }
 
+    [Theory]
+    [InlineData("sources", "")]
+    [InlineData("sources", "%20")]
+    [InlineData("type", "")]
+    [InlineData("from", "")]
+    [InlineData("to", "")]
+    [InlineData("sortBy", "")]
+    [InlineData("sortDirection", "")]
+    [InlineData("limit", "")]
+    public async Task BlankOptionalQueryValueReturnsFieldErrorWithoutContactingProviders(string field, string value)
+    {
+        var provider = new Provider("github", Empty);
+        await using var factory = new ApiFactory(provider);
+        using var client = factory.CreateClient();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var response = await client.GetAsync($"/api/discovery?topic=dotnet&{field}={value}", cancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, provider.CallCount);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        Assert.True(json.RootElement.GetProperty("errors").TryGetProperty(field, out _));
+        var issue = Assert.Single(json.RootElement.GetProperty("validationErrors").EnumerateArray());
+        Assert.Equal(field, issue.GetProperty("field").GetString());
+        Assert.Equal("validation.invalid", issue.GetProperty("code").GetString());
+    }
+
     [Fact]
     public async Task LimitAboveMaximumReturnsFieldErrorWithoutContactingProviders()
     {
@@ -89,16 +126,23 @@ public sealed class DiscoveryEndpointTests
     }
 
     [Fact]
-    public async Task UnexpectedFailureReturnsSanitized500()
+    public async Task UnexpectedFailureReturnsSanitized500WithLoggedTraceId()
     {
-        await using var factory = new ApiFactory(new Provider("github", Empty, throws: true));
+        var logger = new ExceptionLogger();
+        await using var host = new ApiFactory(new Provider("github", Empty, throws: true));
+        await using var factory = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(
+            services => services.AddSingleton<ILogger<ApiExceptionHandler>>(logger)));
+        factory.Server.PreserveExecutionContext = true;
         using var client = factory.CreateClient();
+        using var activity = new Activity("discovery-failure").Start();
         using var response = await client.GetAsync("/api/discovery?topic=dotnet", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.DoesNotContain("secret", body);
         using var json = JsonDocument.Parse(body);
-        Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("traceId").GetString()));
+        var traceId = json.RootElement.GetProperty("traceId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(traceId));
+        Assert.Equal(traceId, logger.TraceId);
     }
 
     [Fact]
@@ -119,6 +163,22 @@ public sealed class DiscoveryEndpointTests
             CallCount++;
             if (throws) throw new InvalidOperationException("secret upstream token");
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class ExceptionLogger : ILogger<ApiExceptionHandler>
+    {
+        public string? TraceId { get; private set; }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Error;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var properties = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(state);
+            TraceId = Assert.IsType<string>(properties.Single(property => property.Key == "TraceId").Value);
         }
     }
 }
