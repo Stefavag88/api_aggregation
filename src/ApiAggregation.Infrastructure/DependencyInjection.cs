@@ -31,13 +31,6 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton<ProviderRateLimitState>();
-        services.AddProviderCaching(configuration);
-        services.AddOptions<ProviderResilienceOptions>()
-            .Bind(configuration.GetSection(ProviderResilienceOptions.SectionName))
-            .Validate(ProviderResilienceOptions.HasValidSettings,
-                "ProviderResilience requires an attempt timeout from 10 milliseconds to one day and a retry delay from zero to one day.")
-            .ValidateOnStart();
 
         AddProviders(services, configuration);
         AddStatistics(services, configuration);
@@ -47,9 +40,23 @@ public static class DependencyInjection
 
     private static void AddProviders(IServiceCollection services, IConfiguration configuration)
     {
+        services.AddProviderCaching(configuration);
+        AddProviderResilience(services, configuration);
+
         AddGitHub(services, configuration.GetSection(GitHubOptions.SectionName));
         AddDevTo(services, configuration.GetSection(DevToOptions.SectionName));
         AddHackerNews(services, configuration.GetSection(HackerNewsOptions.SectionName));
+    }
+
+    private static void AddProviderResilience(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddSingleton<ProviderRateLimitState>();
+
+        services.AddOptions<ProviderResilienceOptions>()
+            .Bind(configuration.GetSection(ProviderResilienceOptions.SectionName))
+            .Validate(ProviderResilienceOptions.HasValidSettings,
+                "ProviderResilience requires an attempt timeout from 10 milliseconds to one day and a retry delay from zero to one day.")
+            .ValidateOnStart();
     }
 
     private static void AddStatistics(IServiceCollection services, IConfiguration configuration)
