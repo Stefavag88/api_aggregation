@@ -42,7 +42,7 @@ public sealed class CacheFallbackTests
         Assert.Equal("original", Assert.Single(stale.RootElement.GetProperty("items").EnumerateArray()).GetProperty("title").GetString());
 
         using var throttled = await DiscoverAsync(client, HttpStatusCode.OK);
-        var attemptsPerRefresh = status == HttpStatusCode.BadGateway ? 2 : 1;
+        var attemptsPerRefresh = status == HttpStatusCode.BadGateway ? 3 : 1;
         Assert.Equal(1 + attemptsPerRefresh, attempts);
         clock.Advance(TimeSpan.FromMinutes(25));
         await ExpireAsync(factory);

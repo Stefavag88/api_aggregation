@@ -1,4 +1,7 @@
 using ApiAggregation.Domain.Common.Results;
+using Polly.CircuitBreaker;
+using Polly.RateLimiting;
+using Polly.Timeout;
 
 namespace ApiAggregation.Infrastructure.Providers;
 
@@ -16,4 +19,13 @@ public static class ProviderErrors
     public static AppError Unauthorized { get; } = new("unauthorized", ResultErrorCode.Unauthorized);
     public static AppError CircuitOpen { get; } = new("circuit_open", ResultErrorCode.ServiceUnavailable);
     public static AppError Busy { get; } = new("busy", ResultErrorCode.ServiceUnavailable);
+
+    internal static AppError? FromResilienceException(Exception exception)
+        => exception switch
+        {
+            TimeoutRejectedException => Timeout,
+            BrokenCircuitException => CircuitOpen,
+            RateLimiterRejectedException => Busy,
+            _ => null
+        };
 }

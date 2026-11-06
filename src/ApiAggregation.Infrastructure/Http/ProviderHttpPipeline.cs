@@ -17,9 +17,10 @@ internal static class ProviderHttpPipeline
         builder.AddResilienceHandler(source, static (pipeline, context) =>
         {
             var options = context.ServiceProvider.GetRequiredService<IOptions<ProviderResilienceOptions>>().Value;
+            pipeline.AddConcurrencyLimiter(permitLimit: options.ConcurrencyLimit, queueLimit: 0);
             pipeline.AddRetry(new HttpRetryStrategyOptions
             {
-                MaxRetryAttempts = 1,
+                MaxRetryAttempts = 2,
                 Delay = options.RetryDelay,
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
@@ -27,6 +28,14 @@ internal static class ProviderHttpPipeline
                 ShouldHandle = static args => ValueTask.FromResult(
                     args.Context.GetRequestMessage()?.Method == HttpMethod.Get
                     && IsTransient(args.Outcome))
+            });
+            pipeline.AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
+            {
+                FailureRatio = options.CircuitFailureRatio,
+                MinimumThroughput = options.CircuitMinimumThroughput,
+                SamplingDuration = options.CircuitSamplingDuration,
+                BreakDuration = options.CircuitBreakDuration,
+                ShouldHandle = static args => ValueTask.FromResult(IsTransient(args.Outcome))
             });
             pipeline.AddTimeout(options.AttemptTimeout);
         });

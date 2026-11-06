@@ -16,19 +16,25 @@ public sealed class ProviderRetryTests
     private const string Query = "/api/discovery?topic=dotnet&sources=github";
 
     [Theory]
-    [InlineData(HttpStatusCode.InternalServerError, HttpStatusCode.OK, 2, HttpStatusCode.OK)]
-    [InlineData(HttpStatusCode.RequestTimeout, HttpStatusCode.OK, 2, HttpStatusCode.OK)]
-    [InlineData(HttpStatusCode.InternalServerError, HttpStatusCode.InternalServerError, 2, HttpStatusCode.ServiceUnavailable)]
-    [InlineData(HttpStatusCode.BadRequest, HttpStatusCode.OK, 1, HttpStatusCode.ServiceUnavailable)]
-    [InlineData(HttpStatusCode.TooManyRequests, HttpStatusCode.OK, 1, HttpStatusCode.ServiceUnavailable)]
-    [InlineData(HttpStatusCode.Forbidden, HttpStatusCode.OK, 1, HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.InternalServerError, HttpStatusCode.OK, HttpStatusCode.OK, 2, HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.RequestTimeout, HttpStatusCode.OK, HttpStatusCode.OK, 2, HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.InternalServerError, HttpStatusCode.BadGateway, HttpStatusCode.OK, 3, HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.InternalServerError, HttpStatusCode.InternalServerError, HttpStatusCode.InternalServerError, 3, HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.BadRequest, HttpStatusCode.OK, HttpStatusCode.OK, 1, HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.TooManyRequests, HttpStatusCode.OK, HttpStatusCode.OK, 1, HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.Forbidden, HttpStatusCode.OK, HttpStatusCode.OK, 1, HttpStatusCode.ServiceUnavailable)]
     public async Task RetriesOnlyTransientStatusesAndCountsEachAttempt(
-        HttpStatusCode first, HttpStatusCode second, int expectedAttempts, HttpStatusCode expectedStatus)
+        HttpStatusCode first, HttpStatusCode second, HttpStatusCode third, int expectedAttempts, HttpStatusCode expectedStatus)
     {
         var attempts = 0;
         await using var host = new WebApplicationFactory<Program>();
         await using var factory = CreateFactory(host, (_, _) => Task.FromResult(Response(
-            Interlocked.Increment(ref attempts) == 1 ? first : second)));
+            Interlocked.Increment(ref attempts) switch
+            {
+                1 => first,
+                2 => second,
+                _ => third
+            })));
         using var client = factory.CreateClient();
         var cancellationToken = TestContext.Current.CancellationToken;
         using var response = await client.GetAsync(Query, cancellationToken);
@@ -68,7 +74,8 @@ public sealed class ProviderRetryTests
         using var response = await client.GetAsync(Query, cancellationToken);
 
         Assert.Equal(recover ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.Equal(2, attempts);
+        var expectedAttempts = recover ? 2 : 3;
+        Assert.Equal(expectedAttempts, attempts);
         if (!recover)
         {
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
@@ -79,8 +86,9 @@ public sealed class ProviderRetryTests
         await factory.Services.GetRequiredService<InMemoryStatisticsStore>().StopAsync(cancellationToken);
         var stats = factory.Services.GetRequiredService<IStatisticsReader>().GetSnapshot().Providers
             .Single(provider => provider.Source == "github");
-        Assert.Equal(2, stats.TotalRequests);
-        Assert.Equal(stall ? (recover ? 1 : 2) : 0, stats.CanceledCount);
+        Assert.Equal(expectedAttempts, stats.TotalRequests);
+        var expectedCancellations = stall ? expectedAttempts - (recover ? 1 : 0) : 0;
+        Assert.Equal(expectedCancellations, stats.CanceledCount);
     }
 
     private static WebApplicationFactory<Program> CreateFactory(WebApplicationFactory<Program> host,

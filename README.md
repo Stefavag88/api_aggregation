@@ -5,8 +5,8 @@ The current increment provides controller-based liveness and discovery, shared R
 primitives, validated queries, and concurrent aggregation across GitHub, DEV,
 and Hacker News. The statistics endpoint reports outbound attempts per provider.
 Provider results are cached in memory with bounded stale fallback. Polly handles
-transient HTTP failures. Provider cooldowns honor upstream rate limits. Circuit
-breaking, authentication, and live smoke tests remain planned increments.
+transient HTTP failures. Provider cooldowns, circuit breakers, and concurrency
+limits protect upstream APIs. Authentication and live smoke tests remain planned.
 
 ## Local setup
 
@@ -116,16 +116,16 @@ Validation returns 400 ProblemDetails with grouped `errors` and coded
 `validationErrors`; total unavailability returns 503 with `providers` reports.
 Unexpected failures return 500 with a trace ID and no exception details.
 
-## Provider HTTP retries
+## Provider HTTP resilience
 
 Each provider uses a Polly pipeline through `Microsoft.Extensions.Http.Resilience`.
-It retries a GET once after a transport failure, an attempt timeout, HTTP 408,
+It retries a GET up to twice after a transport failure, an attempt timeout, HTTP 408,
 or HTTP 5xx. HTTP 429 and other client errors return directly. JSON parsing
 runs after the HTTP pipeline, so malformed responses produce provider failures.
 
 `ProviderResilience:AttemptTimeout` defaults to two seconds through response
 headers. `ProviderResilience:RetryDelay` defaults to 200 ms as the base for
-exponential backoff with jitter. Both attempts, the retry delay, and body
+exponential backoff with jitter. All attempts, retry delays, and body
 processing consume the caller's five-second provider budget. Each retry counts
 as a separate transport attempt. A transport canceled by its attempt timeout
 counts in the canceled bucket.
@@ -139,6 +139,31 @@ Cooldowns apply to all topics for that provider in the current process.
 While blocked, a fetch returns `rate_limited` and adds zero transport
 attempts to statistics. Discovery can serve an eligible cached snapshot,
 and the other providers continue independently.
+
+By default, each provider allows up to eight concurrent HTTP operations through response
+headers, including any retry within an operation. A request above that limit
+fails immediately with `busy`. The circuit breaker opens for 15 seconds when
+at least half of its sampled executions fail within a 30-second window with
+at least 10 executions. Only transient failures count as breaker failures.
+Cooldown responses can contribute to the sample count when they reach the
+breaker. After the break, a probe without a transient failure closes the
+circuit. Requests rejected by the breaker return `circuit_open`.
+
+Both rejections occur before transport and add zero attempt observations.
+Discovery can use an eligible stale snapshot for the affected provider.
+
+Set these values under `ProviderResilience` in `appsettings.json` or through
+environment variables such as `ProviderResilience__ConcurrencyLimit`. Each
+provider applies the settings to its own pipeline. Restart to apply changes.
+Invalid settings fail startup.
+
+| Setting | Default | Valid range |
+| --- | --- | --- |
+| `ConcurrencyLimit` | `8` | Positive integer |
+| `CircuitFailureRatio` | `0.5` | Greater than 0 and at most 1 |
+| `CircuitMinimumThroughput` | `10` | Integer of at least 2 |
+| `CircuitSamplingDuration` | `00:00:30` | 500 ms through 1 day |
+| `CircuitBreakDuration` | `00:00:15` | 500 ms through 1 day |
 
 ## Provider caching
 

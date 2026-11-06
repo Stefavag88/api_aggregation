@@ -264,9 +264,9 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 **Files — create:** `src/ApiAggregation.Infrastructure/Http/{ProviderResilienceOptions,ProviderHttpPipeline}.cs`; `tests/ApiAggregation.IntegrationTests/Resilience/ProviderRetryTests.cs`, `tests/ApiAggregation.UnitTests/Caching/CachedDiscoveryProviderTests.cs`; modify provider registration and expected-error mapping.
 
-**Interfaces:** Reuse the existing CachedDiscoveryProvider caller budget and cancellation token; do not add a second outer timeout decorator. `ProviderHttpPipeline.Configure(IHttpClientBuilder builder, string source): IHttpClientBuilder` configures one Microsoft.Extensions.Http.Resilience pipeline per typed client, resolving options through DI. Options: attempt timeout 2 s, existing Caching:FetchTimeout 5 s, max retries 1, base retry delay 200 ms, exponential backoff with jitter.
+**Interfaces:** Reuse the existing CachedDiscoveryProvider caller budget and cancellation token; do not add a second outer timeout decorator. `ProviderHttpPipeline.Configure(IHttpClientBuilder builder, string source): IHttpClientBuilder` configures one Microsoft.Extensions.Http.Resilience pipeline per typed client, resolving options through DI. Options: attempt timeout 2 s, existing Caching:FetchTimeout 5 s, fixed maximum of 2 retries (3 attempts total), base retry delay 200 ms, exponential backoff with jitter.
 
-- [x] Write `RetriesOneTransientFailureAndCountsBothAttempts`, 500->200 (2 requests), 500->500->200 (only first 2 sent), 400->200 (only 1 sent), network failure retry, timeout retry, malformed body (no retry), and body-read deadline tests. Assert:
+- [x] Write 500->200 (2 requests), 500->502->200 (3 requests), repeated 500 (stops after 3), 400->200 (only 1 sent), network failure retry, timeout retry, malformed body (no retry), and body-read deadline tests. Assert:
   ```csharp
   Assert.Equal(2, transport.CallCount);
   Assert.Equal(2, statistics.TotalRequests);
@@ -281,22 +281,22 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 ## Task 13: Respect rate limits and bound provider load
 
-**Cooldown increment:** Implemented and verified through HTTP integration tests. Release build passed with zero warnings and errors, and all 130 unit tests and 65 integration tests passed. Ready for review. Circuit breaking and concurrency limits are the next increment.
+**Status:** Cooldown is committed as `65e23bb`. The Polly circuit breaker and concurrency limiter are implemented for review.
 
-**Files:** `src/ApiAggregation.Infrastructure/Http/{ProviderRateLimitState,ProviderRateLimitHandler}.cs` and `tests/ApiAggregation.IntegrationTests/Resilience/ProviderRateLimitTests.cs` cover cooldowns. The breaker and limiter will extend ProviderHttpPipeline, options, and error mapping with `ProviderProtectionTests.cs` integration coverage.
+**Files:** `src/ApiAggregation.Infrastructure/Http/{ProviderRateLimitState,ProviderRateLimitHandler}.cs` and `tests/ApiAggregation.IntegrationTests/Resilience/ProviderRateLimitTests.cs` cover cooldowns. The breaker and limiter extend ProviderHttpPipeline and provider error mapping. `ProviderProtectionTests.cs` covers rejection, recovery, stale fallback, provider isolation, and statistics.
 
-**Interfaces:** `ProviderRateLimitState.IsBlocked(string source, DateTimeOffset now): bool` and `BlockUntil(string source, DateTimeOffset until): void` track the latest deadline per provider and process. The registered `IRateLimitPolicy` classifies responses and reads provider-specific quota reset times. The handler owns common `Retry-After` parsing and returns a synthetic 429 during cooldown, before metrics and transport. GitHub's client and handler share the GitHub policy. The client maps the synthetic 429 to a typed RateLimited Result. With the remaining protection strategies in place, the pipeline order will be concurrency limiter, retry, circuit breaker, attempt timeout, cooldown handler, request metrics, then transport. The caller's provider deadline covers the pipeline.
+**Interfaces:** `ProviderRateLimitState.IsBlocked(string source, DateTimeOffset now): bool` and `BlockUntil(string source, DateTimeOffset until): void` track the latest deadline per provider and process. The registered `IRateLimitPolicy` classifies responses and reads provider-specific quota reset times. The handler owns common `Retry-After` parsing and returns a synthetic 429 during cooldown, before metrics and transport. GitHub's client and handler share the GitHub policy. The client maps the synthetic 429 to a typed RateLimited Result. The pipeline order is concurrency limiter, retry, circuit breaker, attempt timeout, cooldown handler, request metrics, then transport. The caller's provider deadline covers the pipeline. The breaker uses Polly's execution sample count. Cooldown responses that reach it do not count as transient failures, and transport statistics count only actual sends.
 
-- [ ] Write tests for 429 with delta/date Retry-After, GitHub rate-limit 403/reset, ordinary unauthorized 403, malformed/missing header fallback 60 s, and cooldown expiry under controlled time. No 429/403 retry is sent. Write gated tests for the ninth simultaneous operation being rejected when eight permits are held and breaker opening after 5 handled failures among 10 completed attempts in 30 s. `SuppressedCallDoesNotIncreaseStatistics` asserts:
+- [x] Write tests for 429 with delta/date Retry-After, GitHub rate-limit 403/reset, ordinary unauthorized 403, malformed/missing header fallback 60 s, and cooldown expiry under controlled time. No 429/403 retry is sent. Write gated tests for the ninth simultaneous operation being rejected when eight permits are held and breaker opening after 5 handled failures among 10 completed attempts in 30 s. `SuppressedCallDoesNotIncreaseStatistics` asserts:
   ```csharp
   Assert.Equal(1, transport.CallCount);
   Assert.Equal(1, statistics.TotalRequests);
   Assert.False(secondResult.IsSuccess);
   Assert.Equal("rate_limited", secondResult.Error!.Code);
   ```
-- [ ] Run **Integration / ProviderRateLimitTests** for cooldown coverage and **Integration / ProviderProtectionTests** for breaker and limiter coverage.
-- [ ] Implement cooldown parsing: use the latest valid future time if multiple headers apply; checked parsing must not overflow on enormous values. Only 429 and positively identified GitHub rate-limit 403 activate cooldown. Exclude cooldown rejections and caller cancellation from retries/breaker failure samples. Configure circuit breaker (ratio .5, minimum 10, sampling 30 s, break 15 s), per-provider concurrency 8, queue 0. Exclude ordinary 4xx from handled breaker failures; include transient failures from Task 12.
-- [ ] Run **Unit all** and **Integration all**; assert rejected requests create no transport measurements. Add settings and failure codes to README. Rate-limit handling and breaker/limiter can be separate passing commits if needed.
+- [x] Run **Integration / ProviderRateLimitTests** for cooldown coverage and **Integration / ProviderProtectionTests** for breaker and limiter coverage.
+- [x] Implement cooldown parsing: use the latest valid future time if multiple headers apply; checked parsing must not overflow on enormous values. Only 429 and positively identified GitHub rate-limit 403 activate cooldown. Exclude cooldown rejections and caller cancellation from retries/breaker failure samples. Configure circuit breaker (ratio .5, minimum 10, sampling 30 s, break 15 s), per-provider concurrency 8, queue 0. Exclude ordinary 4xx from handled breaker failures; include transient failures from Task 12.
+- [x] Run **Unit all** and **Integration all**. Verify that rejections create zero transport measurements and that provider protection settings bind and validate at startup. Document the default limits and failure codes in README. Rate-limit handling and breaker/limiter can be separate passing commits if needed.
 - [ ] Commit: `feat: respect provider quotas and bound outbound load`.
 
 ## Task 14: Add immutable memory-cache policy

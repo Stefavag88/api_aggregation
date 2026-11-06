@@ -56,6 +56,9 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(ProviderResilienceOptions.SectionName))
             .Validate(ProviderResilienceOptions.HasValidSettings,
                 "ProviderResilience requires an attempt timeout from 10 milliseconds to one day and a retry delay from zero to one day.")
+            .Validate(options => options.ConcurrencyLimit > 0, "ProviderResilience:ConcurrencyLimit must be positive.")
+            .Validate(ProviderResilienceOptions.HasValidCircuitSettings,
+                "ProviderResilience circuit settings require a failure ratio above zero and at most one, a minimum throughput of at least two, and durations from 500 milliseconds to one day.")
             .ValidateOnStart();
     }
 

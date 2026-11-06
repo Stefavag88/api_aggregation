@@ -13,7 +13,7 @@ public sealed class StatisticsEndpointTests
     [Theory]
     [InlineData(HttpStatusCode.OK, """{"items":[]}""", false, 1, 0)]
     [InlineData(HttpStatusCode.OK, "{", true, 1, 0)]
-    [InlineData(HttpStatusCode.BadGateway, "", true, 0, 2)]
+    [InlineData(HttpStatusCode.BadGateway, "", true, 0, 3)]
     public async Task CountsOnlyContactedProvidersAndUsesTransportOutcome(
         HttpStatusCode upstreamStatus, string payload, bool discoveryUnavailable, int successes, int failures)
     {
