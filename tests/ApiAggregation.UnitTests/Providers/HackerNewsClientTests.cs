@@ -1,6 +1,9 @@
 using ApiAggregation.Domain.Discovery;
+using ApiAggregation.Infrastructure.Providers;
 using ApiAggregation.Infrastructure.Providers.HackerNews;
 using ApiAggregation.UnitTests.Support;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using System.Net;
 
 namespace ApiAggregation.UnitTests.Providers;
@@ -20,7 +23,7 @@ public sealed class HackerNewsClientTests
             return Task.FromResult(Ok(payload));
         })) { BaseAddress = new Uri("https://hn.algolia.com/") };
 
-        var result = await new HackerNewsClient(http).FetchAsync("c#", cancellationToken);
+        var result = await new HackerNewsClient(http, NullLogger<HackerNewsClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("c#", cancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.False(result.Value!.IsIncomplete);
@@ -42,7 +45,7 @@ public sealed class HackerNewsClientTests
     {
         using var http = Respond("""{"hits":[]}""");
 
-        var result = await new HackerNewsClient(http).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new HackerNewsClient(http, NullLogger<HackerNewsClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Value!.Items);
@@ -57,7 +60,7 @@ public sealed class HackerNewsClientTests
                      {"objectID":"2","title":"Valid","created_at":"2026-01-02T03:04:05Z"}]}
             """);
 
-        var result = await new HackerNewsClient(http).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new HackerNewsClient(http, NullLogger<HackerNewsClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.True(result.Value!.IsIncomplete);
@@ -73,7 +76,7 @@ public sealed class HackerNewsClientTests
     {
         using var http = Respond(payload);
 
-        var result = await new HackerNewsClient(http).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new HackerNewsClient(http, NullLogger<HackerNewsClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("invalid_payload", result.Error!.Code);

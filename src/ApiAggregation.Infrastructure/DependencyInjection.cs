@@ -40,6 +40,12 @@ public static class DependencyInjection
 
     private static void AddProviders(IServiceCollection services, IConfiguration configuration)
     {
+        services.AddOptions<ProviderDiscoveryOptions>()
+            .Bind(configuration.GetSection(ProviderDiscoveryOptions.SectionName))
+            .Validate(options => options.ProviderCandidateLimit is >= 1 and <= ProviderDiscoveryOptions.MaximumCandidateLimit,
+                $"Discovery:ProviderCandidateLimit must be between 1 and {ProviderDiscoveryOptions.MaximumCandidateLimit}.")
+            .ValidateOnStart();
+
         services.AddProviderCaching(configuration);
         AddProviderResilience(services, configuration);
 
@@ -176,6 +182,7 @@ public static class DependencyInjection
                 provider.GetRequiredService<TimeProvider>()),
             provider.GetRequiredService<IFusionCache>(),
             provider.GetRequiredService<IOptions<ProviderCacheOptions>>(),
+            provider.GetRequiredService<IOptions<ProviderDiscoveryOptions>>(),
             provider.GetRequiredService<TimeProvider>()));
     }
 }

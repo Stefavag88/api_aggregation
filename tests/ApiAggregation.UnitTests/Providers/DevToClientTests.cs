@@ -1,6 +1,10 @@
 using ApiAggregation.Domain.Discovery;
+using ApiAggregation.Infrastructure.Providers;
 using ApiAggregation.Infrastructure.Providers.DevTo;
 using ApiAggregation.UnitTests.Support;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace ApiAggregation.UnitTests.Providers;
@@ -17,7 +21,7 @@ public sealed class DevToClientTests
             return Ok("[]");
         });
 
-        var result = await new DevToClient(http).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Value!.Items);
@@ -32,7 +36,7 @@ public sealed class DevToClientTests
         var payload = await File.ReadAllTextAsync(path, cancellationToken);
         using var http = CreateClient(_ => Ok(payload));
 
-        var result = await new DevToClient(http).FetchAsync("dotnet", cancellationToken);
+        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", cancellationToken);
 
         Assert.True(result.IsSuccess);
         var item = Assert.Single(result.Value!.Items);
@@ -48,18 +52,24 @@ public sealed class DevToClientTests
     }
 
     [Fact]
-    public async Task InvalidRecordsDoNotDiscardValidSiblings()
+    public async Task InvalidRecordsAreLoggedOnceAndDoNotDiscardValidSiblings()
     {
         using var http = CreateClient(_ => Ok("""
-            [{"id":1,"published_at":"yesterday"},
+            [{"id":1,"published_at":"yesterday"},null,
              {"id":2,"title":"Valid","url":"https://dev.to/example/valid","published_at":"2026-01-02T03:04:05Z"}]
             """));
 
-        var result = await new DevToClient(http).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var logger = new RecordingLogger();
+        var result = await new DevToClient(http, logger, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.True(result.Value!.IsIncomplete);
         Assert.Equal("2", Assert.Single(result.Value.Items).Id);
+        var warning = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        var properties = Assert.IsAssignableFrom<IReadOnlyList<KeyValuePair<string, object?>>>(warning.State);
+        Assert.Contains(new KeyValuePair<string, object?>("Provider", "devto"), properties);
+        Assert.Contains(new KeyValuePair<string, object?>("SkippedCount", 2), properties);
     }
 
     [Theory]
@@ -71,7 +81,7 @@ public sealed class DevToClientTests
     {
         using var http = CreateClient(_ => Ok(payload));
 
-        var result = await new DevToClient(http).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("invalid_payload", result.Error!.Code);
@@ -87,4 +97,17 @@ public sealed class DevToClientTests
         {
             BaseAddress = new Uri("https://dev.to/")
         };
+
+    private sealed class RecordingLogger : ILogger<DevToClient>
+    {
+        public List<(LogLevel Level, object? State)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, state));
+    }
 }

@@ -209,7 +209,7 @@ Infrastructure decorates IDiscoveryProvider; Application and HTTP contracts stay
 
 Defaults in `Caching` configuration:
 
-- Dedicated cache with 1,000 entry-size units; every snapshot costs one unit. Existing 1 MiB body and 30-candidate caps also apply. This bounds entries, not exact bytes; capacity pressure may evict or refuse an entry.
+- The dedicated cache has 1,000 entry units, with one unit per snapshot. Each upstream response has a 1 MiB body limit. `Discovery:ProviderCandidateLimit` defaults to 30 and accepts values from 1 through 30. It controls upstream page size, mapping, and cache key identity. Capacity pressure can evict or refuse an entry.
 - Fresh duration 5 minutes; maximum total age 30 minutes since successful fetch; failed-refresh throttle 30 seconds while fallback remains usable.
 - Default policy can be overridden under `Caching:Providers:<source>`. Durations must be positive, maximum age greater than fresh duration and at most 365 days, retry interval at most maximum age. Size must be positive.
 - Per-caller cancellation budget 5 seconds (`Caching:FetchTimeout`), including body parsing. Each follower has its own bounded wait. The owner awaits cancellation cleanup and lossless telemetry admission, so channel backpressure may extend completion beyond five seconds; no scoped work is detached. This is not a hard wall-clock response guarantee. The future HTTP resilience pipeline consumes that budget rather than introducing another outer deadline.

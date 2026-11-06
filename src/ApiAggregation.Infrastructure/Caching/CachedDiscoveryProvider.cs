@@ -12,15 +12,15 @@ namespace ApiAggregation.Infrastructure.Caching;
 /// <param name="inner">The provider used to refresh snapshots.</param>
 /// <param name="cache">The local FusionCache instance shared by the provider decorators.</param>
 /// <param name="options">The cache limits and per-provider policies.</param>
+/// <param name="discoveryOptions">The shared candidate limit used to identify cached snapshots.</param>
 /// <param name="timeProvider">The clock used for cancellation budgets and snapshot age checks.</param>
 public sealed class CachedDiscoveryProvider(
     IDiscoveryProvider inner,
     IFusionCache cache,
     IOptions<ProviderCacheOptions> options,
+    IOptions<ProviderDiscoveryOptions> discoveryOptions,
     TimeProvider timeProvider) : IDiscoveryProvider
 {
-    private const int CandidateLimit = 30;
-
     public ProviderDescriptor Descriptor => inner.Descriptor;
 
     /// <summary>
@@ -33,7 +33,7 @@ public sealed class CachedDiscoveryProvider(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var key = ProviderCacheKey.Create(Descriptor.Name, topic, CandidateLimit);
+        var key = ProviderCacheKey.Create(Descriptor.Name, topic, discoveryOptions.Value.ProviderCandidateLimit);
         var policy = options.Value.GetPolicy(Descriptor.Name);
         var entryOptions = CacheRegistration.CreateEntryOptions(policy);
 

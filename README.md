@@ -70,11 +70,18 @@ failures appear in reports; only total unavailability produces a failed Result.
 
 Optional filters: `type=repository|article|discussion`, `from` and `to` (RFC 3339).
 Omit `sources` to search all enabled providers concurrently. The source names are
-`github`, `devto`, and `hackernews`. Each contributes up to 30 candidates from its
-first upstream page. Date filtering, sorting, and the result limit apply after retrieval.
+`github`, `devto`, and `hackernews`. Each contributes candidates from its first
+upstream page. Set `Discovery:ProviderCandidateLimit` in `appsettings.json` or
+`Discovery__ProviderCandidateLimit` in the environment. It defaults to 30 and
+accepts values from 1 through 30. Restart to apply changes.
+
+The request's `limit` applies after merging, filtering, and sorting. With the
+default candidate limit, `limit=50` can return up to 50 combined results or up
+to 30 from a single provider. `limit=120` returns HTTP 400 with a
+`validation.outOfRange` error for `limit`.
 
 GitHub searches public repositories using the topic as a search term and retrieves
-up to 30 candidates from the first page. Repository dates come from `created_at`.
+up to the configured candidate limit from the first page. Repository dates come from `created_at`.
 Public search works without credentials. Set `Providers__GitHub__Token` in the
 API process environment to use an optional GitHub token for authenticated requests.
 See the [GitHub repository search documentation](https://docs.github.com/en/rest/search/search#search-repositories).
@@ -85,8 +92,8 @@ Set `Providers:GitHub:Enabled` to `false` there or set the environment variable
 select `sources=github` then return 400. Requests without a source filter use the
 remaining enabled providers and return 503 if none are available.
 
-DEV uses the topic as an exact tag and fetches up to 30 articles from the first
-page. Article dates come from `published_at`. A tag with no matches returns a
+DEV uses the topic as an exact tag and fetches articles from the first page
+up to the configured candidate limit. Article dates come from `published_at`. A tag with no matches returns a
 successful empty result. The public articles endpoint needs no API key.
 See the [Forem API reference](https://developers.forem.com/api/v1#tag/articles/operation/getArticles).
 

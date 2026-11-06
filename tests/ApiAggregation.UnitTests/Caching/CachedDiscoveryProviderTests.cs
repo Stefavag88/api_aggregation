@@ -210,7 +210,7 @@ public sealed class CachedDiscoveryProviderTests
         });
         var ownerProvider = CreateProvider(inner, cache, clock);
         var followerProvider = new CachedDiscoveryProvider(inner, cache,
-            Options.Create(new ProviderCacheOptions { FetchTimeout = TimeSpan.FromSeconds(1) }), clock);
+            Options.Create(new ProviderCacheOptions { FetchTimeout = TimeSpan.FromSeconds(1) }), Options.Create(new ProviderDiscoveryOptions()), clock);
         var cancellationToken = TestContext.Current.CancellationToken;
         var owner = ownerProvider.FetchAsync("dotnet", cancellationToken);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
@@ -405,7 +405,7 @@ public sealed class CachedDiscoveryProviderTests
             : Success(clock))), cache, Options.Create(new ProviderCacheOptions
             {
                 Default = new ProviderCachePolicy { RetryInterval = TimeSpan.FromMilliseconds(100) }
-            }), clock);
+            }), Options.Create(new ProviderDiscoveryOptions()), clock);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(5));
         await provider.FetchAsync("dotnet", timeout.Token);
@@ -429,7 +429,7 @@ public sealed class CachedDiscoveryProviderTests
             new FusionCacheEntryOptions { IsFailSafeEnabled = true });
 
     private static CachedDiscoveryProvider CreateProvider(IDiscoveryProvider inner, IFusionCache cache, TimeProvider clock)
-        => new(inner, cache, Options.Create(new ProviderCacheOptions()), clock);
+        => new(inner, cache, Options.Create(new ProviderCacheOptions()), Options.Create(new ProviderDiscoveryOptions()), clock);
 
     private static Result<ProviderData> Success(TimeProvider clock)
         => AppResult.Success(new ProviderData([], clock.GetUtcNow(), IsStale: false, IsIncomplete: false));

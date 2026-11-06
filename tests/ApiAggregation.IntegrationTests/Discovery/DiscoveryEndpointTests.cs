@@ -69,6 +69,26 @@ public sealed class DiscoveryEndpointTests
     }
 
     [Fact]
+    public async Task LimitAboveMaximumReturnsFieldErrorWithoutContactingProviders()
+    {
+        var provider = new Provider("github", Empty);
+        await using var factory = new ApiFactory(provider);
+        using var client = factory.CreateClient();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var response = await client.GetAsync("/api/discovery?topic=dotnet&limit=120", cancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, provider.CallCount);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var error = Assert.Single(json.RootElement.GetProperty("errors").GetProperty("limit").EnumerateArray());
+        Assert.Equal("Must be between 1 and 90.", error.GetString());
+        var issue = Assert.Single(json.RootElement.GetProperty("validationErrors").EnumerateArray());
+        Assert.Equal("limit", issue.GetProperty("field").GetString());
+        Assert.Equal("validation.outOfRange", issue.GetProperty("code").GetString());
+        Assert.Equal(error.GetString(), issue.GetProperty("message").GetString());
+    }
+
+    [Fact]
     public async Task UnexpectedFailureReturnsSanitized500()
     {
         await using var factory = new ApiFactory(new Provider("github", Empty, throws: true));
