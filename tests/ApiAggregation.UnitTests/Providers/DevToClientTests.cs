@@ -21,7 +21,7 @@ public sealed class DevToClientTests
             return Ok("[]");
         });
 
-        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Value!.Items);
@@ -36,7 +36,7 @@ public sealed class DevToClientTests
         var payload = await File.ReadAllTextAsync(path, cancellationToken);
         using var http = CreateClient(_ => Ok(payload));
 
-        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", cancellationToken);
+        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", cancellationToken);
 
         Assert.True(result.IsSuccess);
         var item = Assert.Single(result.Value!.Items);
@@ -60,7 +60,7 @@ public sealed class DevToClientTests
             """));
 
         var logger = new RecordingLogger();
-        var result = await new DevToClient(http, logger, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new DevToClient(http, logger, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.True(result.Value!.IsIncomplete);
@@ -81,7 +81,7 @@ public sealed class DevToClientTests
     {
         using var http = CreateClient(_ => Ok(payload));
 
-        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new DevToClient(http, NullLogger<DevToClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("invalid_payload", result.Error!.Code);

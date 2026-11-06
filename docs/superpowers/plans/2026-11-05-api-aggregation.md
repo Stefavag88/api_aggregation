@@ -4,7 +4,7 @@
 
 **Goal:** Deliver a controller-based developer discovery API that concurrently combines three external providers, caches their results with memory-only FusionCache, and exposes accurate request statistics.
 
-**Architecture:** Four projects enforce layered dependencies; feature folders group Discovery and Statistics within Api and Application. Infrastructure owns external adapters, HTTP resilience, in-memory caching, and telemetry. One application process is deployed; unit, integration, and live smoke tests have separate projects.
+**Architecture:** Four projects enforce layered dependencies; feature folders group Discovery and Statistics within Api and Application. Infrastructure owns typed provider clients, HTTP resilience, in-memory caching, and telemetry. One application process is deployed; unit, integration, and live smoke tests have separate projects.
 
 **Tech Stack:** .NET 10, ASP.NET Core MVC controllers, C# primary constructors, System.Text.Json, IHttpClientFactory, Microsoft.Extensions.Http.Resilience, FusionCache, xUnit v3, WebApplicationFactory, optional API container packaging, GitHub Actions.
 
@@ -59,7 +59,7 @@ src/ApiAggregation.Application/
   Features/Discovery/                # Query, validation, provider port, aggregation
   Features/Statistics/               # Read-only statistics contracts
 src/ApiAggregation.Infrastructure/
-  Providers/                         # Transport DTOs, typed clients, outcome adapter
+  Providers/                         # Transport DTOs, typed clients, shared fetch flow
     GitHub/
     DevTo/
     HackerNews/
@@ -159,6 +159,8 @@ File paths below are repository-relative. Each type lives in its named file exce
 - [x] Commit: `feat: expose discovery controller and response contracts`.
 
 ## Task 6: Establish the provider HTTP boundary
+
+**Later refactor:** ExternalContentClient now implements IDiscoveryProvider and timestamps successful results directly. The separate adapter and raw-client interface below describe the initial implementation.
 
 **Files — create:** `src/ApiAggregation.Infrastructure/Providers/{IExternalContentClient,ProviderContent,ProviderErrors,DiscoveryProviderAdapter}.cs`, `src/ApiAggregation.Infrastructure/Http/BoundedJsonReader.cs`, `src/ApiAggregation.Infrastructure/DependencyInjection.cs`; `tests/ApiAggregation.UnitTests/Providers/DiscoveryProviderAdapterTests.cs`, `tests/ApiAggregation.UnitTests/Http/BoundedJsonReaderTests.cs`, `tests/ApiAggregation.UnitTests/Support/StubHttpMessageHandler.cs`.
 
@@ -320,7 +322,7 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 **Files:** Infrastructure/Caching/{CachedDiscoveryProvider,CacheRegistration}.cs; UnitTests/Caching/CachedDiscoveryProviderTests.cs; IntegrationTests/Caching/MemoryCacheTests.cs; DI, appsettings and central packages.
 
-**Interfaces:** CachedDiscoveryProvider wraps the existing adapter and uses a singleton IFusionCache backed by dedicated memory storage. The [migration plan](2026-11-06-fusioncache-memory-only.md) describes factory lifetime, cancellation and fail-safe policy.
+**Interfaces:** CachedDiscoveryProvider wraps the registered typed client and uses a singleton IFusionCache backed by dedicated memory storage. The [migration plan](2026-11-06-fusioncache-memory-only.md) describes factory lifetime, cancellation and fail-safe policy.
 
 - [x] Register FusionCache with bounded memory and reuse the existing provider policy.
 - [x] Verify hit behavior, key isolation, concurrent fills, capacity, cancellation and statistics.
@@ -353,10 +355,10 @@ Removed by the approved revision. Document independent per-instance caches and e
 
 **Files — create:** `tests/ApiAggregation.SmokeTests/{LiveApiFactAttribute,ProviderSmokeTests}.cs`, `.github/workflows/smoke.yml`, `scripts/Invoke-SmokeTests.ps1`; modify SmokeTests csproj and README.
 
-**Interfaces:** `LiveApiFactAttribute : FactAttribute` skips by an explicit message unless `RUN_LIVE_SMOKE_TESTS=1`; normal CI never runs this project. Smoke checks call `DiscoveryProviderAdapter -> real typed client` with an explicit five-second cancellation token, bypassing the cache decorator while retaining the actual HTTP resilience pipeline; use `dotnet` as topic. `Invoke-SmokeTests.ps1` sets/restores this environment flag in its own process and invokes the SmokeTests project, propagating failure exit code.
+**Interfaces:** `LiveApiFactAttribute : FactAttribute` skips by an explicit message unless `RUN_LIVE_SMOKE_TESTS=1`; normal CI never runs this project. Smoke checks call the real registered typed client with an explicit five-second cancellation token, bypassing the cache decorator while retaining the actual HTTP resilience pipeline; use `dotnet` as topic. `Invoke-SmokeTests.ps1` sets/restores this environment flag in its own process and invokes the SmokeTests project, propagating failure exit code.
 
 - [x] Add one smoke test per provider. Require a successful Result and validate the shape of any returned items.
-- [x] Add the opt-in attribute, bounded provider checks, and manual workflow with the optional `SMOKE_GITHUB_TOKEN` secret. Call the registered provider clients directly through the adapter.
+- [x] Add the opt-in attribute, bounded provider checks, and manual workflow with the optional `SMOKE_GITHUB_TOKEN` secret. Call the registered provider clients directly.
 - [x] Verify three explicit skips in a default run and three passes with `./scripts/Invoke-SmokeTests.ps1`.
 - [ ] Commit: `test: add opt-in live provider smoke checks`.
 
@@ -436,8 +438,8 @@ API-only container packaging remains an optional follow-up.
 
 - Coverage: every assignment requirement and accepted user preference has an owning task.
 - Dependency order: controllers/ports precede adapters; metrics precede retries; cache policy precedes L1/L2/fallback; optional features follow all required features.
-- Contract consistency: Application providers return Result<ProviderData>; raw Infrastructure clients return Result<ProviderContent>; validation returns Result<DiscoveryQuery>; aggregation returns Result<DiscoveryResult>; only cache decorators use CachedProviderSnapshot. ProviderDescriptor is the common source/type identity.
-- Test boundaries: unit tests use controlled collaborators; integration tests progress from early fake providers to real adapters with stubbed HTTP and the actual memory cache; smoke tests alone use live providers.
+- Contract consistency: Typed Infrastructure clients implement IDiscoveryProvider and return Result<ProviderData>; ProviderContent is internal mapping data; validation returns Result<DiscoveryQuery>; aggregation returns Result<DiscoveryResult>; only cache decorators use CachedProviderSnapshot. ProviderDescriptor is the common source/type identity.
+- Test boundaries: unit tests use controlled collaborators; integration tests progress from early fake providers to real clients with stubbed HTTP and the actual memory cache; smoke tests alone use live providers.
 - Review Focus: all five listed risks have explicit tests in their owning tasks.
 - Scope at plan authoring: no application code, dependencies, repository initialization, or tests had been created/run. Native execution is now in progress.
 

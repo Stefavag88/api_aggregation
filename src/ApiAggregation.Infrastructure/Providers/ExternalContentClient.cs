@@ -17,11 +17,13 @@ namespace ApiAggregation.Infrastructure.Providers;
 /// <param name="descriptor">The provider name and content type.</param>
 /// <param name="logger">The logger used to report skipped provider records.</param>
 /// <param name="options">The shared provider candidate settings.</param>
+/// <param name="timeProvider">The clock used to timestamp successful fetches.</param>
 public abstract class ExternalContentClient(
     HttpClient httpClient,
     ProviderDescriptor descriptor,
     ILogger logger,
-    IOptions<ProviderDiscoveryOptions> options) : IExternalContentClient
+    IOptions<ProviderDiscoveryOptions> options,
+    TimeProvider timeProvider) : IDiscoveryProvider
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     protected int CandidateLimit { get; } = options.Value.ProviderCandidateLimit;
@@ -29,7 +31,21 @@ public abstract class ExternalContentClient(
     public ProviderDescriptor Descriptor { get; } = descriptor;
 
     /// <inheritdoc />
-    public async Task<Result<ProviderContent>> FetchAsync(string topic, CancellationToken cancellationToken)
+    public async Task<Result<ProviderData>> FetchAsync(string topic, CancellationToken cancellationToken)
+    {
+        var result = await FetchContentAsync(topic, cancellationToken);
+        if (!result.IsSuccess)
+            return AppResult.Failure<ProviderData>(result.Error!);
+
+        var content = result.Value!;
+        return AppResult.Success(new ProviderData(
+            content.Items,
+            timeProvider.GetUtcNow(),
+            IsStale: false,
+            IsIncomplete: content.IsIncomplete));
+    }
+
+    private async Task<Result<ProviderContent>> FetchContentAsync(string topic, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, BuildRequestPath(topic));
 
@@ -69,7 +85,7 @@ public abstract class ExternalContentClient(
     /// <summary>
     /// Reads the provider payload and maps it to discovery content.
     /// </summary>
-    protected abstract Task<Result<ProviderContent>> ReadContentAsync(HttpContent content, CancellationToken cancellationToken);
+    private protected abstract Task<Result<ProviderContent>> ReadContentAsync(HttpContent content, CancellationToken cancellationToken);
 
     /// <summary>
     /// Maps an unsuccessful HTTP response to a provider error.
@@ -85,7 +101,7 @@ public abstract class ExternalContentClient(
     /// <summary>
     /// Reads a size-limited JSON response and applies the provider's payload mapper.
     /// </summary>
-    protected static async Task<Result<ProviderContent>> ReadAndMapAsync<TResponse>(
+    private protected static async Task<Result<ProviderContent>> ReadAndMapAsync<TResponse>(
         HttpContent content, Func<TResponse, CancellationToken, Result<ProviderContent>> map, CancellationToken cancellationToken)
     {
         var result = await BoundedJsonReader.ReadAsync<TResponse>(content, cancellationToken);
@@ -97,7 +113,7 @@ public abstract class ExternalContentClient(
     /// <summary>
     /// Maps up to one page of candidates and marks the result incomplete when records are skipped.
     /// </summary>
-    protected Result<ProviderContent> MapItems(
+    private protected Result<ProviderContent> MapItems(
         JsonElement[] records,
         Func<JsonElement, DiscoveryItem?> map,
         CancellationToken cancellationToken,

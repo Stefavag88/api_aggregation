@@ -14,11 +14,13 @@ namespace ApiAggregation.Infrastructure.Providers.DevTo;
 /// <param name="httpClient">The HTTP client configured for this provider.</param>
 /// <param name="logger">The logger for this provider client.</param>
 /// <param name="options">The shared provider candidate settings.</param>
+/// <param name="timeProvider">The clock used to timestamp successful fetches.</param>
 public sealed class DevToClient(
     HttpClient httpClient,
     ILogger<DevToClient> logger,
-    IOptions<ProviderDiscoveryOptions> options)
-    : ExternalContentClient(httpClient, Metadata, logger, options)
+    IOptions<ProviderDiscoveryOptions> options,
+    TimeProvider timeProvider)
+    : ExternalContentClient(httpClient, Metadata, logger, options, timeProvider)
 {
     internal static ProviderDescriptor Metadata { get; } = new("devto", ContentType.Article);
 
@@ -30,7 +32,7 @@ public sealed class DevToClient(
     }
 
     /// <inheritdoc />
-    protected override Task<Result<ProviderContent>> ReadContentAsync(HttpContent content, CancellationToken cancellationToken)
+    private protected override Task<Result<ProviderContent>> ReadContentAsync(HttpContent content, CancellationToken cancellationToken)
         => ReadAndMapAsync<JsonElement[]>(content, MapResponse, cancellationToken);
 
     private Result<ProviderContent> MapResponse(JsonElement[] records, CancellationToken cancellationToken)

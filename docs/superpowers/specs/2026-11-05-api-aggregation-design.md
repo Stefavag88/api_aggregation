@@ -97,7 +97,7 @@ Responsibilities:
 
 The provider abstraction exposes a stable provider name, its content type, and an asynchronous fetch operation returning `Result<ProviderData>` with a cancellation token. Application receives all registered providers through dependency injection. Expected provider failures become `AppError` values at the infrastructure boundary; caller cancellation propagates rather than becoming an unavailable-provider result.
 
-Use C# primary constructors for constructor injection in controllers and services, and explicit mappings. Primary-constructor dependencies are implementation details, not public properties on API response models. Additional providers need an adapter, registration, tests, and documentation; no central switch in the orchestrator.
+Use C# primary constructors for dependency injection in controllers and services. Additional providers extend the shared client and supply their own request path, response mapping, registration, tests, and documentation.
 
 ### Organization within the layers — selected
 
@@ -110,7 +110,7 @@ Reference inspected: `E:/STORAGE/Documents/Indeavor_project/src/backend/src/Inde
 Adapt `ResultBase<T>`, `Result<T>`, `VoidResult`, `AppError`, `AppResult`, `ResultErrorCode`, `ValidationIssue`, and `ValidationCodes`. Preserve the familiar `IsSuccess`, `Value`, `Error`, `AppResult.Success(...)`, `AppResult.Failure<T>(...)`, and validation-metadata style. Guard failure factories against null errors so `Failure(null)` cannot appear successful. Retain appropriate explicit constructors for these invariant-bearing primitives; primary constructors remain the default for DI services/controllers. Add `ServiceUnavailable` to the semantic error enum; enum values are not HTTP status codes. HTTP mapping belongs only to Api.
 
 - Query validation returns `Result<DiscoveryQuery>` with structured ValidationIssue entries; it does not throw for invalid user input.
-- Raw external clients return `Result<ProviderContent>`; the application-facing provider returns `Result<ProviderData>`. A successful ProviderData contains usable fresh/stale data (including genuinely empty results), original fetched time, and incomplete-result metadata. Failures carry AppError, not empty success values or a second conflicting failure flag.
+- External clients implement `IDiscoveryProvider` and return `Result<ProviderData>`. The shared base timestamps successful fetches after processing the response. `ProviderContent` holds mapped items and incompleteness inside Infrastructure. ProviderData includes the fetch timestamp and freshness metadata, and expected failures carry AppError.
 - Discovery returns `Result<DiscoveryResult>`. At least one successful provider means aggregate success, potentially partial. If all selected providers fail, return ServiceUnavailable with safe provider reports in metadata; no successful value is expected on that failure.
 - Provider reports in HTTP responses remain `fresh`/`stale`/`unavailable`, derived from each provider's result and descriptor. This is presentation/diagnostic data, not an alternative result framework.
 - Adapt the reference's Minimal API `IResult` mapper to MVC `ActionResult<T>` / `ObjectResult` / ProblemDetails, with centralized category-to-status mapping and allowlisted metadata. Never pass upstream bodies, exception objects, tokens, or arbitrary metadata straight to clients. JWT middleware continues to own authentication challenges.
@@ -242,7 +242,7 @@ Keep measurement inside the retry pipeline and immediately around actual transpo
 
 ### IntegrationTests
 
-Use WebApplicationFactory to exercise the real ASP.NET Core routing, dependency injection, controllers, provider adapters, resilience, caching, and statistics. Replace the external HTTP transport with deterministic stubs; do not replace the application or cache implementation.
+Use WebApplicationFactory to exercise the real ASP.NET Core routing, dependency injection, controllers, provider clients, resilience, caching, and statistics. Replace the external HTTP transport with deterministic stubs; do not replace the application or cache implementation.
 
 Integration tests require no Redis, Docker daemon or live provider access. Each test host owns its cache; use controlled time and gated HTTP stubs.
 
@@ -250,7 +250,7 @@ Verify HTTP validation/contracts, three-provider fan-out, retry attempt counts, 
 
 ### SmokeTests
 
-Use a separate project and an explicit opt-in flag. Run provider adapters against the real public APIs with caching bypassed to verify actual connectivity, required headers, and payload compatibility. Assert successful parsing and invariant field shapes; do not assert exact titles, counts, or the existence of a particular live result.
+Use a separate project and an explicit opt-in flag. Run provider clients against the real public APIs with caching bypassed to verify actual connectivity, required headers, and payload compatibility. Assert successful parsing and invariant field shapes; do not assert exact titles, counts, or the existence of a particular live result.
 
 A live rate limit/outage fails an explicitly requested smoke run with a useful diagnostic; never hide it as success. Default unit/integration CI does not execute live checks. Provide a manually triggered smoke workflow and a documented local command. Optional GitHub credentials come from environment/secrets.
 
@@ -280,9 +280,9 @@ Proposed sequence (milestones can contain several focused commits):
 2. Result primitives in a dedicated commit, followed by common discovery contracts and query rules with unit tests.
 3. Aggregation orchestration, deterministic filtering/sorting, and fake-provider tests.
 4. Discovery HTTP endpoint and integration-test host, using controlled providers initially.
-5. GitHub adapter and payload/HTTP tests.
-6. DEV adapter and payload/HTTP tests.
-7. Hacker News adapter and payload/HTTP tests; default fan-out now uses all three live adapters.
+5. GitHub client and payload/HTTP tests.
+6. DEV client and payload/HTTP tests.
+7. Hacker News client and payload/HTTP tests. Default fan-out uses all three clients.
 8. In-memory statistics accumulator and boundary/concurrency tests.
 9. Outbound-attempt measurement and statistics endpoint with HTTP coverage.
 10. HTTP resilience, timeouts, rate-limit cooldowns, and failure-path integration tests; split mechanisms into separate commits when useful.

@@ -2,7 +2,6 @@ using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Domain.Common.Results;
 using ApiAggregation.Domain.Discovery;
 using ApiAggregation.Infrastructure;
-using ApiAggregation.Infrastructure.Providers;
 using ApiAggregation.Infrastructure.Providers.DevTo;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.Infrastructure.Providers.HackerNews;
@@ -26,7 +25,7 @@ public sealed class ProviderSmokeTests
         => VerifyProviderAsync<HackerNewsClient>("hackernews", ContentType.Discussion);
 
     private static async Task VerifyProviderAsync<TClient>(string source, ContentType contentType)
-        where TClient : class, IExternalContentClient
+        where TClient : class, IDiscoveryProvider
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -42,9 +41,8 @@ public sealed class ProviderSmokeTests
         try
         {
             await using var scope = host.Services.CreateAsyncScope();
-            var client = scope.ServiceProvider.GetRequiredService<TClient>();
+            var provider = scope.ServiceProvider.GetRequiredService<TClient>();
             var clock = scope.ServiceProvider.GetRequiredService<TimeProvider>();
-            var provider = new DiscoveryProviderAdapter(client, clock);
             using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(5), clock);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
 
@@ -70,7 +68,7 @@ public sealed class ProviderSmokeTests
     }
 
     private static async Task<Result<ProviderData>> FetchAsync(
-        DiscoveryProviderAdapter provider, string source, CancellationToken budgetToken, CancellationToken cancellationToken)
+        IDiscoveryProvider provider, string source, CancellationToken budgetToken, CancellationToken cancellationToken)
     {
         try
         {

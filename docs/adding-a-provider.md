@@ -22,7 +22,7 @@ and report sources. Add a provider in Infrastructure by following the existing
    descriptor and accepted media type. Use `DefaultRateLimitPolicy` for standard
    HTTP 429 handling. A provider with custom quota signals can supply its own
    policy and use the same classification in its client. The registration
-   helper applies the Polly pipeline, metrics, discovery adapter, and cache.
+   helper applies the Polly pipeline and metrics, then wraps the client in the cache.
 5. Add unit tests for request construction and payload mapping. Use a stubbed
    HTTP transport in integration tests to check that selecting the source by
    name reaches the registered client. Add an opt-in live smoke test for

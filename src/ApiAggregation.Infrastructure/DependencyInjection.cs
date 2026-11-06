@@ -142,7 +142,7 @@ public static class DependencyInjection
         ProviderDescriptor descriptor,
         string accept,
         Action<HttpClient, TOptions>? configureClient = null)
-        where TClient : class, IExternalContentClient
+        where TClient : class, IDiscoveryProvider
         where TOptions : ProviderOptions
         where TRateLimitPolicy : class, IRateLimitPolicy
     {
@@ -177,9 +177,7 @@ public static class DependencyInjection
 
         services.AddSingleton(descriptor);
         services.AddScoped<IDiscoveryProvider>(provider => new CachedDiscoveryProvider(
-            new DiscoveryProviderAdapter(
-                provider.GetRequiredService<TClient>(),
-                provider.GetRequiredService<TimeProvider>()),
+            provider.GetRequiredService<TClient>(),
             provider.GetRequiredService<IFusionCache>(),
             provider.GetRequiredService<IOptions<ProviderCacheOptions>>(),
             provider.GetRequiredService<IOptions<ProviderDiscoveryOptions>>(),

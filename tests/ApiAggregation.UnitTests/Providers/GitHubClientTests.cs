@@ -23,7 +23,7 @@ public sealed class GitHubClientTests
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(payload) };
         });
 
-        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("c#", cancellationToken);
+        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("c#", cancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.False(result.Value!.IsIncomplete);
@@ -46,7 +46,7 @@ public sealed class GitHubClientTests
         var flag = incomplete ? "true" : "false";
         using var http = Respond($$"""{"items":[],"incomplete_results":{{flag}}}""");
 
-        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Empty(result.Value!.Items);
@@ -61,7 +61,7 @@ public sealed class GitHubClientTests
                       {"id":2,"name":"valid","html_url":"https://github.com/octocat/valid","created_at":"2020-01-02T03:04:05Z"}]}
             """);
 
-        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.True(result.Value!.IsIncomplete);
@@ -77,7 +77,7 @@ public sealed class GitHubClientTests
     {
         using var http = Respond(payload);
 
-        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.False(result.IsSuccess);
         Assert.Equal("invalid_payload", result.Error!.Code);
@@ -101,7 +101,7 @@ public sealed class GitHubClientTests
             return response;
         });
 
-        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions())).FetchAsync("dotnet", TestContext.Current.CancellationToken);
+        var result = await new GitHubClient(http, new GitHubRateLimitPolicy(), NullLogger<GitHubClient>.Instance, Options.Create(new ProviderDiscoveryOptions()), TimeProvider.System).FetchAsync("dotnet", TestContext.Current.CancellationToken);
 
         Assert.Equal(code, result.Error!.Code);
     }
