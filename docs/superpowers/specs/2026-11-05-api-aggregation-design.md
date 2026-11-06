@@ -18,7 +18,7 @@ The submission should demonstrate understandable architecture, real asynchronous
 - Organize Api and Application by feature within the layers; keep shared integration concerns in Infrastructure.
 - Use the Result pattern for expected failures, following the user's Indeavor_project implementation and adapting its HTTP mapping to MVC controllers.
 - Keep UnitTests, IntegrationTests, and live SmokeTests in separate projects.
-- Use Redis and FusionCache for hybrid caching.
+- Use FusionCache in memory-only mode. Evaluate Redis as a shared cache for production.
 - Do not introduce a SQL database. Request statistics remain in memory.
 - Implement JWT authentication and performance-anomaly detection last.
 - Build incrementally with small, meaningful commits, beginning with solution structure.
@@ -33,7 +33,7 @@ All numerical defaults, API details, and library choices below are proposed engi
 - Normalize their records into a documented common representation.
 - Filter by source, content type, and date; sort deterministically.
 - Handle timeouts, transient errors, rate limits, malformed responses, and partial outages.
-- Reuse successful provider results in memory and Redis; support bounded stale fallback.
+- Reuse successful provider results in process memory; support bounded stale fallback.
 - Report per-provider request totals and mean response latency, overall and within performance buckets.
 - Provide automated unit and integration coverage, opt-in live smoke checks, OpenAPI, setup instructions, and CI.
 
@@ -48,11 +48,11 @@ All numerical defaults, API details, and library choices below are proposed engi
 ### Constraints
 
 - Target .NET 10 and ASP.NET Core; compatible SDKs are already installed locally.
-- The service is one deployable application. Redis is its only required companion service.
+- The service is one deployable application. No companion cache service is required.
 - Public-provider access should work without secrets; an optional GitHub token improves available quota.
 - Do not commit credentials or depend on paid accounts for the evaluator's basic setup.
 - Automated unit/integration tests must not call the real external APIs.
-- Docker is required for Redis-backed integration tests and the Compose environment; document this prerequisite explicitly.
+- Unit and integration tests run without Docker; optional API container packaging is independent of caching.
 - Pin compatible stable package versions during scaffolding/feature introduction; do not use floating versions or assume features on a library's main branch are already released.
 
 ## Approaches considered
@@ -61,7 +61,7 @@ All numerical defaults, API details, and library choices below are proposed engi
 2. **Api, Core, Infrastructure:** a small layered application with few projects. Initially recommended, then refined at the user's request.
 3. **Api, Application, Domain, Infrastructure:** selected. Domain holds the common model; Application owns workflows and ports; Infrastructure implements integration details; Api owns HTTP concerns. Keep Domain small rather than inventing business abstractions to fill it.
 
-For caching, in-process memory was the original simplicity-first proposal. Redis was selected for shared cached results, then FusionCache for L1/L2 coordination and fail-safe behavior. SQL storage adds little value for temporary provider snapshots and is not selected.
+FusionCache supplies local request coordination and fail-safe behavior. This keeps the exercise deployment to one application process. Temporary provider snapshots live in process memory.
 
 ## Solution boundaries
 
@@ -91,8 +91,8 @@ Dependencies:
 Responsibilities:
 
 - **Domain:** immutable discovery items and content types, plus framework-independent Result primitives in `Common/Results`. These are not provider JSON DTOs or HTTP response envelopes. Keep four production projects; do not add a fifth Core project just to house these small shared types.
-- **Application:** provider abstraction, aggregation use case, query rules, filtering/sorting, provider outcomes, and statistics-read contract. Depend on narrow, purpose-specific interfaces, not FusionCache types.
-- **Infrastructure:** typed HTTP clients, private provider DTOs and mapping, resilience, FusionCache provider decorator, Redis setup/backplane, request measurement, in-memory statistics, and later anomaly analysis/hosting.
+- **Application:** provider abstraction, aggregation use case, query rules, filtering/sorting, provider outcomes, and statistics-read contract. Depend on narrow, purpose-specific interfaces, not cache-library types.
+- **Infrastructure:** typed HTTP clients, private provider DTOs and mapping, resilience, FusionCache provider decorator, request measurement, in-memory statistics, and later anomaly analysis/hosting.
 - **Api:** thin MVC controllers with `[ApiController]` and attribute routing, HTTP input/output contracts, validation/ProblemDetails mapping, OpenAPI, health endpoints, composition, and later JWT configuration. Register controllers through `AddControllers` and route them with `MapControllers`; no Minimal API route handlers. Health routes are also controller actions, delegating to health-check services as needed.
 
 The provider abstraction exposes a stable provider name, its content type, and an asynchronous fetch operation returning `Result<ProviderData>` with a cancellation token. Application receives all registered providers through dependency injection. Expected provider failures become `AppError` values at the infrastructure boundary; caller cancellation propagates rather than becoming an unavailable-provider result.
@@ -115,7 +115,7 @@ Adapt `ResultBase<T>`, `Result<T>`, `VoidResult`, `AppError`, `AppResult`, `Resu
 - Provider reports in HTTP responses remain `fresh`/`stale`/`unavailable`, derived from each provider's result and descriptor. This is presentation/diagnostic data, not an alternative result framework.
 - Adapt the reference's Minimal API `IResult` mapper to MVC `ActionResult<T>` / `ObjectResult` / ProblemDetails, with centralized category-to-status mapping and allowlisted metadata. Never pass upstream bodies, exception objects, tokens, or arbitrary metadata straight to clients. JWT middleware continues to own authentication challenges.
 - Actual cancellation remains OperationCanceledException; expected library/transport exceptions are translated once at their owning boundary; unexpected bugs reach the global exception handler. Ordinary in-memory statistics reads need no Result wrapper because they have no expected failure outcome.
-- Cache only successful provider snapshots. Use FusionCache's factory-context `Fail(...)` to signal a failed Result, rather than custom exceptions for normal provider failure. Handle its library-level failure exception inside Infrastructure if there is no fallback, preserving the typed error where available. Do not expose library exceptions or cache a failed Result as data. Add a test that unexpected bugs are not hidden behind a successful stale response.
+- Cache only successful provider snapshots. Expected failures remain failed Results unless bounded stale fallback exists. Do not cache failed Results or turn them into empty successes. Unexpected bugs are not hidden behind successful stale responses.
 
 Introduce and test the Result primitives in their own small commit immediately after the skeleton, before implementing features that consume them.
 
@@ -186,7 +186,7 @@ Define latency precisely as elapsed monotonic time from handing an attempt to th
 ### Health
 
 - `/health/live`: process liveness only.
-- `/health/ready`: local application readiness, with Redis availability reported as degraded when the application can still serve via L1/upstream; Redis degradation alone does not stop routing traffic.
+- `/health/ready`: local application readiness when introduced; no Redis or live-provider probes. `/health/live` remains the currently implemented health endpoint.
 - Never probe live providers on every health check.
 
 ## Concurrency and resilience
@@ -195,40 +195,37 @@ Define latency precisely as elapsed monotonic time from handing an attempt to th
 - One provider's ordinary failure does not cancel siblings; external cancellation does.
 - Use `IHttpClientFactory` typed clients with fixed configured upstream hosts and correctly encoded topics. Do not accept user-supplied upstream URLs.
 - Use one configured HTTP resilience pipeline per provider, based on Microsoft.Extensions.Http.Resilience; no nested retry loops in caching or aggregation.
-- Initial proposed limits: 2-second transport attempt timeout, maximum 1 retry (2 attempts total), and exponential backoff starting at 200 ms with jitter. Each discovery caller has a 5-second per-provider deadline starting before cache access; it includes Redis operations, waits for a coalesced fetch, retries/backoff, body reading/mapping, and cache writes. Nested HTTP work uses the remaining budget, never a fresh additional five seconds. Every waiter has its own bounded wait, including when another caller owns the shared fetch. A provider-budget expiry becomes stale fallback when still available within the budget, otherwise unavailable; caller-request cancellation propagates. Pass cancellation through every operation and test deadline behavior for cache and coalescing waits. Configure HttpClient timeout so it does not introduce a competing unrelated timeout.
+- Initial proposed limits: 2-second transport attempt timeout, maximum 1 retry (2 attempts total), and exponential backoff starting at 200 ms with jitter. Each discovery caller has a 5-second per-provider deadline starting before cache access; it includes local cache access, waits for a coalesced fetch, retries/backoff, body reading/mapping, and cache writes. Nested HTTP work uses the remaining budget, never a fresh additional five seconds. Every waiter has its own bounded wait, including when another caller owns the shared fetch. A provider-budget expiry becomes stale fallback when still available within the budget, otherwise unavailable; caller-request cancellation propagates. Pass cancellation through every operation and test deadline behavior for cache and coalescing waits. Configure HttpClient timeout so it does not introduce a competing unrelated timeout.
 - Retry GET transport failures, attempt timeouts, HTTP 408, and HTTP 5xx. Do not retry malformed content or ordinary 4xx responses.
 - Treat 429 and GitHub rate-limit 403 responses specially: do not immediately retry. Respect valid Retry-After / rate-reset information through a per-provider, per-instance cooldown; use 60 seconds when the rate-limit signal supplies no usable future time. Ordinary 403 is an authorization failure, not a rate-limit cooldown.
 - Use a per-provider circuit breaker and concurrency limiter with explicit tested settings. Proposed breaker: 50% handled failures, minimum 10 attempts over 30 seconds, open for 15 seconds. Proposed maximum 8 concurrent outbound operations per provider, no unbounded queue.
 - Bound upstream response bodies (proposed 1 MiB) and per-provider candidate counts. Failed or oversized responses produce provider failure rather than unbounded buffering.
 
-## Hybrid caching
+## In-memory caching
 
-FusionCache belongs entirely in Infrastructure. Use its asynchronous get-or-create operation around successful provider fetches, with System.Text.Json serialization, Redis as L2, and the Redis backplane for cross-instance change notifications.
+The approved migration uses FusionCache with a dedicated memory cache. See the [migration plan](../plans/2026-11-06-fusioncache-memory-only.md).
 
-Cache normalized provider snapshots, not final aggregate responses. Cache keys include an application/environment prefix, application payload schema version, provider name, normalized topic, and upstream candidate limit. Include any future parameter that changes the upstream candidate set. Local filter/sort/response-limit changes reuse the same snapshot.
+Infrastructure decorates IDiscoveryProvider; Application and HTTP contracts stay unchanged. Cache immutable normalized provider snapshots, not aggregate responses. Keys include schema version, provider, normalized topic and upstream candidate limit. Filtering, sorting and response limits reuse the same snapshot.
 
-Proposed defaults:
+Defaults in `Caching` configuration:
 
-- Fresh duration: 5 minutes, configurable per provider.
-- Fail-safe maximum age: 30 minutes total since the last successful fetch, including the fresh period.
-- Fail-safe throttle: 30 seconds between refresh attempts after failure, subject also to the provider's rate-limit cooldown.
-- Redis operation timeout budget: 250 ms; use FusionCache's distributed-cache failure handling to degrade to L1/upstream.
-- No eager refresh or background completion initially. Keep fetch lifetime, cancellation, and measurement straightforward; add only if a measured need justifies it.
-- Foreground distributed writes for deterministic shared-cache behavior; bound their latency.
+- Dedicated cache with 1,000 entry-size units; every snapshot costs one unit. Existing 1 MiB body and 30-candidate caps also apply. This bounds entries, not exact bytes; capacity pressure may evict or refuse an entry.
+- Fresh duration 5 minutes; maximum total age 30 minutes since successful fetch; failed-refresh throttle 30 seconds while fallback remains usable.
+- Default policy can be overridden under `Caching:Providers:<source>`. Durations must be positive, maximum age greater than fresh duration and at most 365 days, retry interval at most maximum age. Size must be positive.
+- Per-caller cancellation budget 5 seconds (`Caching:FetchTimeout`), including body parsing. Each follower has its own bounded wait. The owner awaits cancellation cleanup and lossless telemetry admission, so channel backpressure may extend completion beyond five seconds; no scoped work is detached. This is not a hard wall-clock response guarantee. The future HTTP resilience pipeline consumes that budget rather than introducing another outer deadline.
+- No eager or background refresh. Restart to apply configuration changes.
 
-The cached snapshot stores immutable items, `fetchedAt`, `freshUntil`, `staleUntil`, and incomplete-result metadata. Preserve these timestamps on fallback; do not refresh age by copying an old snapshot into another instance. Application-visible freshness is derived from this envelope. Enforce the absolute `staleUntil` bound even if library retention/throttling would otherwise make the item accessible.
+Snapshots preserve immutable data, original fetchedAt, freshUntil and staleUntil. At freshUntil a refresh is required; at staleUntil the snapshot is unusable. Failed refreshes never advance original age. Expected provider failures may serve still-usable stale data with the existing stale status and partial aggregate flag. Valid empty results replace prior data; malformed/all-invalid or incomplete-empty results cannot replace a good snapshot. Unexpected faults and caller cancellation propagate.
 
-Successful empty responses may be cached. Provider errors must trigger fail-safe behavior rather than being cached as successful empty snapshots. With no previous successful snapshot, return an explicit unavailable outcome.
+FusionCache coordinates local fetches and throttles failed refreshes with usable fallback. Different keys can proceed independently. A canceled follower leaves the owner running, and owner cancellation permits another caller to fetch. After a cold failure, waiting callers may run sequential factories within their own budgets. A budget-expiry fallback is a local read and leaves the refresh schedule alone. Cache hits contribute zero transport observations.
 
-Use FusionCache's built-in local stampede protection and test it. Redis sharing and backplane notifications do not guarantee a single simultaneous fetch across nodes. Distributed locking is out of scope initially; document this limitation rather than claiming cluster-wide request coalescing. Do not depend on unreleased locking APIs from the project's main branch.
-
-Bound L1 cache memory through a dedicated size-limited cache with entry sizes and bound Redis memory with an eviction policy in the local environment. TTL alone does not bound peak memory under many distinct topics. Exact resource limits can be set by the implementer and documented in configuration.
+Local caches reset on restart and are independent across instances. For production, evaluate Redis as shared L2 based on duplicated traffic, upstream quotas, freshness needs and operating cost. Evaluate a backplane separately when cross-instance local invalidation is needed.
 
 ## Statistics storage
 
 Use a singleton in-memory store and a bounded channel with one consumer. The consumer owns the provider accumulators and publishes immutable snapshots at the configurable `Statistics:SnapshotInterval` when counts change. Recording waits asynchronously if the channel fills. Graceful shutdown drains accepted observations.
 
-Counters cover the current process lifetime and reset on restart. A snapshot reflects the observations processed by its publication time, so recent attempts can appear on the next publication. Document per-instance statistics even though content caches are shared.
+Counters cover the current process lifetime and reset on restart. A snapshot reflects the observations processed by its publication time, so recent attempts can appear on the next publication. Document per-instance statistics as well as per-instance content caches.
 
 Keep measurement inside the retry pipeline and immediately around actual transport attempts so attempts are neither missed nor double-counted. Record attempts that reached transport and were canceled with a canceled outcome, including their elapsed duration. Circuit-breaker rejection before transport creates no sample.
 
@@ -247,9 +244,9 @@ Keep measurement inside the retry pipeline and immediately around actual transpo
 
 Use WebApplicationFactory to exercise the real ASP.NET Core routing, dependency injection, controllers, provider adapters, resilience, caching, and statistics. Replace the external HTTP transport with deterministic stubs; do not replace the application or cache implementation.
 
-Use Testcontainers.Redis for real disposable Redis. Require a Docker-capable CI runner; fail clearly if the required integration environment is missing rather than silently skipping the suite. Isolate cache prefixes per test/fixture.
+Integration tests require no Redis, Docker daemon or live provider access. Each test host owns its cache; use controlled time and gated HTTP stubs.
 
-Verify HTTP validation/contracts, three-provider fan-out, retry attempt counts, cancellation, fallback, absolute stale-age expiry, Redis outage degradation, local coalescing, L2 reuse across independently hosted application instances, and eventual backplane propagation. Use synchronization signals and bounded polling for asynchronous notifications instead of fixed long sleeps. Library-facing time-sensitive cases may use short test-only durations when time cannot be injected.
+Verify HTTP validation/contracts, three-provider fan-out, retry attempt counts, cancellation, fallback, absolute stale-age expiry, local coalescing, independent cache scope per host, capacity handling, and cancellation isolation. Use synchronization signals and bounded polling for asynchronous notifications instead of fixed long sleeps. Use TimeProvider for application freshness and deadline tests.
 
 ### SmokeTests
 
@@ -289,10 +286,10 @@ Proposed sequence (milestones can contain several focused commits):
 8. In-memory statistics accumulator and boundary/concurrency tests.
 9. Outbound-attempt measurement and statistics endpoint with HTTP coverage.
 10. HTTP resilience, timeouts, rate-limit cooldowns, and failure-path integration tests; split mechanisms into separate commits when useful.
-11. FusionCache L1 caching and local coalescing, with tests.
-12. Redis L2, serialization, Compose setup, and real-Redis integration tests.
-13. Redis backplane and multi-instance integration tests.
-14. Bounded stale fallback, Redis degradation, and freshness response metadata, with failure tests.
+11. FusionCache policy, local caching and request coalescing, with tests.
+12. Bounded stale fallback and freshness response metadata, with failure tests.
+13. Document per-instance limits and the future shared-cache option.
+14. Optional API-only container packaging, independent of caching.
 15. Live smoke checks, their explicit opt-in command, and manual CI workflow.
 16. Required-feature delivery checks: CI, complete OpenAPI/examples, operational README, container instructions, and requirement traceability. Add basic CI earlier once the first test suite exists; evolve it alongside dependencies.
 17. JWT authentication, auth tests, and updated setup/examples.
@@ -302,11 +299,11 @@ Intermediate endpoints may use test doubles in test hosts, but the shipping appl
 
 ## Documentation and delivery
 
-README covers prerequisites, local dotnet and Docker Compose startup, configuration, optional GitHub token, endpoints and example JSON, provider matching differences, bounded search scope, cache freshness/fallback, request-count and latency definitions, Redis outages, per-instance statistics, test commands, and adding a provider.
+README covers prerequisites, local dotnet startup and any optional API container setup, configuration, optional GitHub token, endpoints and example JSON, provider matching differences, bounded search scope, cache freshness/fallback, request-count and latency definitions, per-instance cache limitations and statistics, test commands, and adding a provider.
 
 OpenAPI describes input enums/ranges, successful/partial responses, validation errors, complete failure, and later bearer authentication. Supply an HTTP request example file. Pin stable dependency and container versions when they are selected.
 
-CI restores, builds, and executes unit/integration suites with Redis available; smoke tests run only when explicitly requested. Verify with Release configuration and a clean working tree review before delivery. Publishing the repository requires a concrete GitHub/GitLab destination; prepare locally first and resolve hosting when delivery is ready.
+CI restores, builds, and executes unit/integration suites without external services; smoke tests run only when explicitly requested. Verify with Release configuration and a clean working tree review before delivery. Publishing the repository requires a concrete GitHub/GitLab destination; prepare locally first and resolve hosting when delivery is ready.
 
 ## Decisions left to implementation planning
 
@@ -323,13 +320,7 @@ These choices must preserve the behavior and dependency boundaries in this desig
 - GitHub rate-limit handling: https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
 - DEV/Forem article API: https://developers.forem.com/api/v1
 - Hacker News search: https://hn.algolia.com/api
-- FusionCache levels: https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheLevels.md
-- FusionCache fail-safe: https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/FailSafe.md
-- FusionCache backplane: https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Backplane.md
-- FusionCache coalescing: https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md
 - .NET HTTP resilience: https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience
 - Local development JWTs: https://learn.microsoft.com/en-us/aspnet/core/security/authentication/jwt-authn
-- Redis integration-test containers: https://dotnet.testcontainers.org/modules/redis/
 - User's Result implementation: `E:/STORAGE/Documents/Indeavor_project/src/backend/src/Indeavor_project.Core/Result/`
 - User's HTTP mapper (adapt to MVC): `E:/STORAGE/Documents/Indeavor_project/src/backend/src/Indeavor_project.Api/Extensions/ResultHttpExtensions.cs`
-- FusionCache v2.9.0 Result-style failure signaling: https://github.com/ZiggyCreatures/FusionCache/blob/v2.9.0/docs/FailSafe.md#-even-without-exceptions

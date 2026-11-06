@@ -1,5 +1,6 @@
 using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Application.Features.Statistics;
+using ApiAggregation.Infrastructure.Caching;
 using ApiAggregation.Infrastructure.Http;
 using ApiAggregation.Infrastructure.Providers;
 using ApiAggregation.Infrastructure.Providers.DevTo;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using ZiggyCreatures.Caching.Fusion;
 using System.Net;
 using System.Net.Http.Headers;
 
@@ -20,6 +22,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.AddProviderCaching(configuration);
 
         AddProviders(services, configuration);
         AddStatistics(services, configuration);
@@ -126,8 +129,12 @@ public static class DependencyInjection
                 provider.GetRequiredService<TimeProvider>()));
 
         services.AddSingleton(descriptor);
-        services.AddScoped<IDiscoveryProvider>(provider => new DiscoveryProviderAdapter(
-            provider.GetRequiredService<TClient>(),
+        services.AddScoped<IDiscoveryProvider>(provider => new CachedDiscoveryProvider(
+            new DiscoveryProviderAdapter(
+                provider.GetRequiredService<TClient>(),
+                provider.GetRequiredService<TimeProvider>()),
+            provider.GetRequiredService<IFusionCache>(),
+            provider.GetRequiredService<IOptions<ProviderCacheOptions>>(),
             provider.GetRequiredService<TimeProvider>()));
     }
 }

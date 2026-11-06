@@ -2,6 +2,10 @@ using ApiAggregation.Domain.Common.Results;
 
 namespace ApiAggregation.Infrastructure.Providers;
 
+/// <summary>
+/// Defines expected failures when fetching data from an external provider,
+/// including transport, payload, and provider resilience failures.
+/// </summary>
 public static class ProviderErrors
 {
     public static AppError UpstreamError { get; } = new("upstream_error", ResultErrorCode.ServiceUnavailable);

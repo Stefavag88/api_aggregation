@@ -4,7 +4,9 @@ An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness and discovery, shared Result
 primitives, validated queries, and concurrent aggregation across GitHub, DEV,
 and Hacker News. The statistics endpoint reports outbound attempts per provider.
-Caching and authentication will follow in later increments.
+Provider results are cached in memory with bounded stale fallback. HTTP retries,
+rate-limit cooldowns, circuit breaking, authentication, and live smoke tests remain
+planned increments.
 
 ## Local setup
 
@@ -113,6 +115,65 @@ Counts describe the bounded retrieved candidates, not total upstream matches.
 Validation returns 400 ProblemDetails with grouped `errors` and coded
 `validationErrors`; total unavailability returns 503 with `providers` reports.
 Unexpected failures return 500 with a trace ID and no exception details.
+
+## Provider caching
+
+The API uses FusionCache in memory-only mode with a dedicated, bounded memory cache in Infrastructure. Local setup and integration tests run with the .NET SDK.
+The cache stores immutable provider snapshots keyed by provider, normalized topic,
+schema version and upstream candidate limit. Filters, sorting and response limits
+reuse those snapshots; they do not create separate cache entries.
+
+The defaults in `appsettings.json` are:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `Caching:SizeLimit` | `1000` | Maximum entry-size units; each snapshot costs one unit |
+| `Caching:FetchTimeout` | `00:00:05` | Each caller's cancellation budget, including fetch, body parsing and waiting for a shared fetch |
+| `Caching:Default:FreshDuration` | `00:05:00` | Serve cached data without contacting the provider |
+| `Caching:Default:MaximumAge` | `00:30:00` | Absolute maximum age from the last successful fetch, including the fresh interval |
+| `Caching:Default:RetryInterval` | `00:00:30` | Delay further refreshes after a failed refresh while usable stale data exists |
+
+Override a provider's policy under `Caching:Providers:<source>`, for example
+`Caching__Providers__github__FreshDuration=00:02:00`. Unspecified properties in
+an override use the standard policy defaults (5 minutes / 30 minutes / 30 seconds).
+Providers without an override use `Caching:Default`. Restart to apply changes.
+Size and timeout must be positive; timeout cannot exceed the .NET timer maximum.
+Policies require `0 < FreshDuration < MaximumAge <= 365 days` and
+`0 < RetryInterval <= MaximumAge`; invalid configuration fails startup.
+
+After the five-minute freshness window, the next request attempts a refresh. If the provider
+fails, usable prior data is returned with `status: "stale"`, its original
+`fetchedAt`, and `isPartial: true`. At exactly thirty minutes it is unusable;
+continued failure makes that provider unavailable. The existing response rules
+apply: partial success returns 200, while all providers unavailable returns 503.
+Eviction or restart can remove fallback earlier, so stale availability is best effort.
+
+Valid empty responses are cached and replace older data. Malformed, all-invalid,
+or incomplete-empty responses cannot overwrite a good snapshot. Failed Results
+are never cached as empty successes. Unexpected exceptions still produce 500;
+caller cancellation propagates.
+
+FusionCache coordinates same-key fetches. Concurrent callers can reuse a
+successful fill. After a cold-cache failure, waiting callers may attempt their
+own fetch within their budgets. Different keys can proceed independently.
+A canceled follower leaves the active fetch running. A canceled owner releases
+the key so another caller can fetch. Cache hits add zero transport observations.
+
+The five-second cancellation budget covers the wait, transport and body parsing.
+On expiry, the caller can use an available snapshot within its maximum age or
+receive a timeout failure. This read leaves the refresh schedule alone. The
+owning request waits for factory cleanup and lossless statistics recording, so
+statistics channel backpressure can extend completion beyond the budget.
+
+The size limit counts snapshots. Provider responses are capped at 1 MiB and 30
+candidates. Capacity pressure can evict a snapshot or decline to store a new one.
+The caller still receives successfully fetched data.
+
+Each application instance has its own cache, which resets on restart. For
+production we would evaluate Redis as a shared second-level cache based on
+replica count, duplicated upstream traffic, quotas, freshness requirements and
+operating cost. We would evaluate a backplane separately if local cache
+invalidation needs coordination across instances.
 
 ## HTTP statistics endpoint
 

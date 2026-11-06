@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver a controller-based developer discovery API that concurrently combines three external providers, caches their results with FusionCache/Redis, and exposes accurate request statistics.
+**Goal:** Deliver a controller-based developer discovery API that concurrently combines three external providers, caches their results with memory-only FusionCache, and exposes accurate request statistics.
 
-**Architecture:** Four projects enforce layered dependencies; feature folders group Discovery and Statistics within Api and Application. Infrastructure owns external adapters, HTTP resilience, hybrid caching, and telemetry. One application process and Redis are deployed; unit, integration, and live smoke tests have separate projects.
+**Architecture:** Four projects enforce layered dependencies; feature folders group Discovery and Statistics within Api and Application. Infrastructure owns external adapters, HTTP resilience, in-memory caching, and telemetry. One application process is deployed; unit, integration, and live smoke tests have separate projects.
 
-**Tech Stack:** .NET 10, ASP.NET Core MVC controllers, C# primary constructors, System.Text.Json, IHttpClientFactory, Microsoft.Extensions.Http.Resilience, FusionCache, Redis, xUnit v3, WebApplicationFactory, Testcontainers.Redis, Docker Compose, GitHub Actions.
+**Tech Stack:** .NET 10, ASP.NET Core MVC controllers, C# primary constructors, System.Text.Json, IHttpClientFactory, Microsoft.Extensions.Http.Resilience, FusionCache, xUnit v3, WebApplicationFactory, optional API container packaging, GitHub Actions.
 
 **Spec:** [2026-11-05-api-aggregation-design.md](../specs/2026-11-05-api-aggregation-design.md). Read this together with the plan. Status: native execution approved; implementation in progress. See task checkboxes and Git history.
 
@@ -16,7 +16,7 @@
 - Use C# primary constructors for dependency injection in controllers and services where constructors are needed.
 - Organize Api and Application by feature within the layers; keep shared integration concerns in Infrastructure.
 - Keep UnitTests, IntegrationTests, and live SmokeTests in separate projects.
-- Use Redis and FusionCache for hybrid caching.
+- Use FusionCache in memory-only mode. Evaluate Redis for production.
 - Use the Result pattern for expected failures, following the user's Indeavor_project implementation and adapting its HTTP mapping to MVC controllers.
 - Do not introduce a SQL database. Request statistics remain in memory.
 - Implement JWT authentication and performance-anomaly detection last.
@@ -31,7 +31,7 @@
 
 1. Simultaneous callers and cancellation: a canceled follower must not cancel another caller's fetch or leave a waiter hanging; each caller's provider budget is bounded. Tasks 12 and 15.
 2. Malformed-but-successful upstream payloads: distinguish a valid empty result from a nonempty payload with no usable records; never overwrite good fallback with invalid data. Tasks 7-9 and 18.
-3. Cache age across instances: L2 reads, backplane events, and fail-safe throttling must not reset original freshness or exceed the absolute 30-minute age. Tasks 16-18.
+3. Cache age: failed-refresh throttling and coalesced callers must not reset original freshness or exceed the absolute 30-minute age. Tasks 14-18.
 4. Telemetry under failure: retries are separate HTTP attempts, cache hits/rejections are not attempts, and every reached-transport cancellation gets exactly one measurement. Tasks 10-13 and 15.
 5. Query determinism: offset dates, empty source segments, sort ties, duplicate provider records, and post-cache filtering must behave consistently without mutating shared data. Tasks 3-5 and 15.
 
@@ -47,7 +47,7 @@ For each commit: run its focused checks and `dotnet build ApiAggregation.slnx -c
 
 **Commands:** Run from repository root in PowerShell. For brevity, a verification instruction such as **Unit / DiscoveryQueryTests** means the exact command `dotnet test tests/ApiAggregation.UnitTests/ApiAggregation.UnitTests.csproj -c Release --filter FullyQualifiedName~DiscoveryQueryTests`; **Integration / DiscoveryEndpointTests** uses `tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTests.csproj` with the same filter syntax. **Unit all** / **Integration all** omit `--filter`. Expected output is a nonzero discovered test count, zero failures, and exit code 0. The scaffold is the exception: it has no feature tests yet and is verified by build/startup.
 
-**Dependencies:** Use Central Package Management in `Directory.Packages.props`, adding a package only when its feature lands. Planning-time NuGet candidates are xunit.v3.mtp-off 4.0.2, xunit.runner.visualstudio 4.0.1, Microsoft.NET.Test.Sdk 18.11.0, FusionCache/core/SystemTextJson/backplane 2.9.0, Testcontainers.Redis 4.14.0, Microsoft.Extensions.Http.Resilience 10.11.0, and Microsoft.AspNetCore.Mvc.Testing / Microsoft.Extensions.Caching.StackExchangeRedis 10.0.14. Revalidate availability and compatibility during restore; record any necessary stable-version correction in this plan. Align other Microsoft ASP.NET Core packages to the selected 10.0 patch. Use VSTest-compatible `dotnet test` execution with the xUnit adapter; do not silently switch test-runner command conventions. Select and pin a supported stable Redis image tag and digest when Task 16 introduces Docker, using the same image for tests and Compose.
+**Dependencies:** Use Central Package Management in `Directory.Packages.props`, adding a package only when its feature lands. Planning-time NuGet candidates are xunit.v3.mtp-off 4.0.2, xunit.runner.visualstudio 4.0.1, Microsoft.NET.Test.Sdk 18.11.0, Microsoft.Extensions.Http.Resilience 10.11.0, ZiggyCreatures.FusionCache 2.9.0, and Microsoft.AspNetCore.Mvc.Testing / Microsoft.Extensions.Caching.Memory 10.0.14. Revalidate availability and compatibility during restore; record any necessary stable-version correction in this plan. Align other Microsoft ASP.NET Core packages to the selected 10.0 patch. Use VSTest-compatible `dotnet test` execution with the xUnit adapter; do not silently switch test-runner command conventions.
 
 ## File responsibility map
 
@@ -64,7 +64,7 @@ src/ApiAggregation.Infrastructure/
     DevTo/
     HackerNews/
   Http/                              # Attempt metrics, resilience, bounded body reading
-  Caching/                           # FusionCache decorator, Redis/backplane, envelopes
+  Caching/                           # memory cache decorator, request coalescing, snapshots
   Statistics/                        # Thread-safe counters; later anomaly history/worker
   DependencyInjection.cs             # Composition helpers, not application logic
 src/ApiAggregation.Api/
@@ -74,7 +74,7 @@ src/ApiAggregation.Api/
   Authentication/                    # Added only in the final authentication milestone
   ErrorHandling/                     # Safe ProblemDetails for unexpected failures
 tests/ApiAggregation.UnitTests/       # Mirrored feature/provider tests and local helpers
-tests/ApiAggregation.IntegrationTests/# WebApplicationFactory, HTTP stubs, Redis fixture
+tests/ApiAggregation.IntegrationTests/# WebApplicationFactory, HTTP stubs, controlled time
 tests/ApiAggregation.SmokeTests/       # Explicitly enabled live provider checks
 ```
 
@@ -254,11 +254,15 @@ File paths below are repository-relative. Each type lives in its named file exce
 - [x] Run **Unit all** and **Integration all**. Document that latency excludes body parsing, backoff, cache access, and aggregation; add a statistics request/response example.
 - [x] Commit: `feat: expose measured external request statistics`.
 
-## Task 12: Add bounded retries and provider deadlines
+**Pending statistics test:** Force cancellation while the statistics worker is idle and waiting for both a channel observation and a publication tick. Assert that the worker exits promptly without spinning. The existing shutdown tests cover draining accepted observations during graceful shutdown.
 
-**Files — create:** `src/ApiAggregation.Infrastructure/Http/{ProviderResilienceOptions,ProviderHttpPipeline,DeadlineDiscoveryProvider}.cs`; `tests/ApiAggregation.IntegrationTests/Resilience/ProviderRetryTests.cs`, `tests/ApiAggregation.UnitTests/Providers/DeadlineDiscoveryProviderTests.cs`; modify provider registration and expected-error mapping.
+Tasks 12 and 15 already track the retry and cache counting tests. Wait for a published statistics snapshot before asserting the attempt totals in those tests.
 
-**Interfaces:** `DeadlineDiscoveryProvider(IDiscoveryProvider inner, TimeProvider timeProvider, IOptions<ProviderResilienceOptions> options)` implements the same application port and becomes the outermost per-provider decorator. `ProviderHttpPipeline.Configure(IHttpClientBuilder builder, string source): IHttpClientBuilder` configures one Microsoft.Extensions.Http.Resilience pipeline per typed client, resolving options through DI. Options: attempt timeout 2 s, provider deadline 5 s, max retries 1, base retry delay 200 ms, exponential backoff with jitter.
+## Task 12: Add bounded retries and verify provider deadlines
+
+**Files — create:** `src/ApiAggregation.Infrastructure/Http/{ProviderResilienceOptions,ProviderHttpPipeline}.cs`; `tests/ApiAggregation.IntegrationTests/Resilience/ProviderRetryTests.cs`, `tests/ApiAggregation.UnitTests/Caching/CachedDiscoveryProviderTests.cs`; modify provider registration and expected-error mapping.
+
+**Interfaces:** Reuse the existing CachedDiscoveryProvider caller budget and cancellation token; do not add a second outer timeout decorator. `ProviderHttpPipeline.Configure(IHttpClientBuilder builder, string source): IHttpClientBuilder` configures one Microsoft.Extensions.Http.Resilience pipeline per typed client, resolving options through DI. Options: attempt timeout 2 s, existing Caching:FetchTimeout 5 s, max retries 1, base retry delay 200 ms, exponential backoff with jitter.
 
 - [ ] Write `RetriesOneTransientFailureAndCountsBothAttempts`, 500->200 (2 requests), 500->500->200 (only first 2 sent), 400->200 (only 1 sent), network failure retry, timeout retry, malformed body (no retry), and body-read deadline tests. Assert:
   ```csharp
@@ -268,9 +272,9 @@ File paths below are repository-relative. Each type lives in its named file exce
   Assert.Equal(1, statistics.FailureCount);
   ```
   Write gated deadline tests: timeout returns a failed Result with ServiceUnavailable/`timeout`; caller cancellation propagates; a stalled inner provider cannot leave the caller waiting indefinitely.
-- [ ] Run **Integration / ProviderRetryTests** and **Unit / DeadlineDiscoveryProviderTests**; confirm retry/deadline failures.
-- [ ] Implement one retry policy for GET transport failures, attempt timeouts, 408, and 5xx. Disable HttpClient's competing timeout. Use a linked, TimeProvider-backed cancellation budget starting before the inner provider, plus a bounded await; body parsing receives the same token. The deadline wrapper stays outside future caching. Observe and cancel owned operations when returning early; never swallow a faulted detached task. Retry parsing neither in adapters nor in cache factories.
-- [ ] Run **Unit all** and **Integration all**; verify retries execute through metrics separately. If splitting commits, land retries and their tests first, then the deadline and cancellation tests.
+- [ ] Run **Integration / ProviderRetryTests** and **Unit / CachedDiscoveryProviderTests**; confirm retry/deadline failures.
+- [ ] Implement one retry policy for GET transport failures, attempt timeouts, 408, and 5xx. Disable HttpClient's competing timeout. Use the existing linked, TimeProvider-backed cache caller budget; body parsing and retries receive its remaining token. Verify cancellation through stalled response bodies and statistics backpressure. Do not detach scoped operations; explicitly address any path that cannot observe cancellation before claiming hard wall-clock limits. Retry parsing neither in adapters nor in cache factories.
+- [ ] Run **Unit all** and **Integration all**; verify retries execute through metrics separately. If splitting commits, land retries and their tests first, then the extended deadline and cancellation tests.
 - [ ] Commit: `feat: bound provider retries and execution time`.
 
 ## Task 13: Respect rate limits and bound provider load
@@ -291,93 +295,59 @@ File paths below are repository-relative. Each type lives in its named file exce
 - [ ] Run **Unit all** and **Integration all**; assert rejected requests create no transport measurements. Add settings and failure codes to README. Rate-limit handling and breaker/limiter can be separate passing commits if needed.
 - [ ] Commit: `feat: respect provider quotas and bound outbound load`.
 
-## Task 14: Add cache keys and immutable snapshot policy
+## Task 14: Add immutable memory-cache policy
 
-**Files — create:** `src/ApiAggregation.Infrastructure/Caching/{ProviderCacheOptions,ProviderCacheKey,CachedProviderSnapshot}.cs`; `tests/ApiAggregation.UnitTests/Caching/ProviderCachePolicyTests.cs`.
+**Revision approved 2026-11-06:** the [memory-only FusionCache migration](2026-11-06-fusioncache-memory-only.md) replaces custom cache coordination. Existing task numbers remain stable; Tasks 16-17 are explicitly retired. The pending statistics cancellation test above remains pending. Owner deadlines use cooperative cancellation: lossless telemetry/cleanup may finish after the budget; scoped operations are never detached. HTTP resilience Tasks 12-13 remain pending.
 
-**Interfaces:** `ProviderCacheKey.Create(string prefix, string source, string normalizedTopic, int candidateLimit): string` yields `{prefix}:discovery:v1:{source}:{normalizedTopic}:limit:{candidateLimit}`. `CachedProviderSnapshot(ImmutableArray<DiscoveryItem> Items, DateTimeOffset FetchedAt, DateTimeOffset FreshUntil, DateTimeOffset StaleUntil, bool IsIncomplete)`; `ToResult(DateTimeOffset now): Result<ProviderData>` returns success with IsStale=false iff now < FreshUntil, success with IsStale=true iff FreshUntil <= now < StaleUntil, and ServiceUnavailable/`cache_expired` failure otherwise. `ProviderCacheOptions` supports validated per-provider policies with fresh 5 min, maximum age 30 min, throttle 30 s, Redis timeout 250 ms, environment prefix. Maximum age includes the fresh interval.
+**Status:** Implemented and verified 2026-11-06; left uncommitted for review. Final verification: Release build, 130 unit tests and 44 integration tests.
 
-- [ ] Write key and boundary tests; filtering/sorting/response limit do not appear in keys. `ExpiresAtAbsoluteMaximumAge` uses fetchedAt = `2026-11-05T12:00:00Z` and asserts:
-  ```csharp
-  Assert.False(snapshot.ToResult(fetchedAt.AddMinutes(4)).Value!.IsStale);
-  Assert.True(snapshot.ToResult(fetchedAt.AddMinutes(5)).Value!.IsStale);
-  Assert.False(snapshot.ToResult(fetchedAt.AddMinutes(30)).IsSuccess);
-  Assert.Equal("cache_expired", snapshot.ToResult(fetchedAt.AddMinutes(30)).Error!.Code);
-  ```
-- [ ] Run **Unit / ProviderCachePolicyTests**; confirm absence.
-- [ ] Implement key/policy/snapshot types and configuration validation (positive durations, maximum age greater than fresh duration, safe nonempty prefix). Use actual original fetched timestamps; conversion never advances them. No runtime cache dependency yet.
-- [ ] Run **Unit all**. Document exact freshness and stale-age boundaries.
-- [ ] Commit: `feat: define provider cache keys and freshness policy`.
+**Files:** Infrastructure/Caching/{ProviderCacheOptions,ProviderCachePolicy,ProviderCacheKey,CachedProviderSnapshot}.cs; UnitTests/Caching/ProviderCachePolicyTests.cs.
 
-## Task 15: Add FusionCache L1 and local request coalescing
+**Interfaces:** key `discovery:v1:{source}:{normalizedTopic}:limit:{candidateLimit}`. CachedProviderSnapshot stores immutable ProviderData, FreshUntil and StaleUntil; ToResult(now) derives stale status and rejects absolute expiry. ProviderCacheOptions defaults to 1,000 entries and a 5-second caller budget; default/per-source policies are 5 minutes fresh, 30 minutes total age and 30 seconds retry throttle. Cache duration validation is described in the design.
 
-**Files — create:** `src/ApiAggregation.Infrastructure/Caching/{CachedDiscoveryProvider,CacheRegistration}.cs`; `tests/ApiAggregation.IntegrationTests/Caching/MemoryCacheTests.cs`; modify provider registration, configuration, and CPM.
+- [x] Write and run failing key, exact-boundary and configuration-validation tests.
+- [x] Implement policy types; original fetchedAt never changes on fallback.
+- [x] Run Unit all; document configuration and boundaries.
+- [ ] Review/commit increment: `feat: define provider cache keys and freshness policy`.
 
-**Interfaces:** `CachedDiscoveryProvider(IDiscoveryProvider inner, IFusionCache cache, IOptions<ProviderCacheOptions> options, TimeProvider timeProvider)` implements `IDiscoveryProvider`. Successful inner Result values become CachedProviderSnapshot inside `GetOrSetAsync<CachedProviderSnapshot>`. On a failed inner Result, use the verified v2.9.0 factory-context `Fail(error.Code ?? "upstream_error")` API to activate fail-safe; do not cache Result failures or throw a custom exception for expected refresh failures. When the library reports factory failure without fallback, catch only its documented factory-failure exception inside this decorator and return the original typed error if this invocation observed it, otherwise reconstruct a sanitized ProviderErrors value from an allowlisted safe error code. This must also work for coalesced followers; unknown codes become generic ServiceUnavailable. Keep error capture local to each invocation, never on the shared provider instance. Register the chain `DeadlineDiscoveryProvider -> CachedDiscoveryProvider -> DiscoveryProviderAdapter -> typed external client`. Only Infrastructure sees FusionCache.
+## Task 15: Add FusionCache and local request coalescing
 
-- [ ] Write tests for first fetch, fresh repeat with no transport increment, key isolation by provider/topic, reuse across sort/filter/response-limit changes, successful empty caching, unavailability not cached, and 20 same-key concurrent callers producing one local fetch. Add follower-cancellation and cache-lock deadline tests with gates. Assert:
-  ```csharp
-  Assert.Equal(1, transport.CallCount);
-  Assert.Equal(1, statistics.TotalRequests);
-  Assert.Equal(originalOrder, cachedItems.Select(x => x.Id).ToArray());
-  ```
-- [ ] Run **Integration / MemoryCacheTests**; confirm redundant calls before caching exists.
-- [ ] Implement FusionCache L1 with a dedicated size-limited MemoryCache: 1,000 entry-size units, each provider snapshot size 1, combined with the upstream body/candidate caps. Keep cached values immutable; do not set a size limit on the shared framework cache. Disable eager refresh/background factory completion and distributed background operations. Fail-safe is disabled until Task 18. Translate library-level factory failure back to failed Results; preserve caller cancellation. Distinguish unexpected faults from explicit context.Fail signaling: capture unexpected factory exceptions locally and rethrow with preserved stack even if FusionCache tries to serve stale data. Test this when fail-safe is enabled; no unexpected bug becomes a successful fallback response.
-- [ ] Run **Unit all** and **Integration all**. Ensure a canceled follower does not cancel the leader. If the factory owner cancels, shared fill may be canceled; other callers must complete or retry within their own deadlines, without indefinite wait or invented success. Confirm no cache hit increments provider request metrics.
-- [ ] Commit: `feat: cache provider results with FusionCache`.
+**Status:** Implemented and verified 2026-11-06; left uncommitted for review. Final verification: Release build, 130 unit tests and 44 integration tests.
 
-## Task 16: Add Redis L2 and reproducible container setup
+**Files:** Infrastructure/Caching/{CachedDiscoveryProvider,CacheRegistration}.cs; UnitTests/Caching/CachedDiscoveryProviderTests.cs; IntegrationTests/Caching/MemoryCacheTests.cs; DI, appsettings and central packages.
 
-**Files — create:** `compose.yaml`, `redis.conf`, `.env.example`, `tests/ApiAggregation.IntegrationTests/Support/RedisFixture.cs`, `tests/ApiAggregation.IntegrationTests/Caching/RedisCacheTests.cs`; modify CacheRegistration, Api config, CPM, CI, README.
+**Interfaces:** CachedDiscoveryProvider wraps the existing adapter and uses a singleton IFusionCache backed by dedicated memory storage. The [migration plan](2026-11-06-fusioncache-memory-only.md) describes factory lifetime, cancellation and fail-safe policy.
 
-**Interfaces:** `RedisFixture : IAsyncLifetime` owns a disposable real Redis container and exposes its connection string and a per-test cache prefix. `CacheRegistration.AddProviderCaching(IServiceCollection services, IConfiguration configuration): IServiceCollection` configures the dedicated FusionCache instance, SystemTextJson serializer, and RedisCache L2 with a shared singleton connection multiplexer where supported. Connection ownership/disposal belongs to DI; never construct a connection per request.
+- [x] Register FusionCache with bounded memory and reuse the existing provider policy.
+- [x] Verify hit behavior, key isolation, concurrent fills, capacity, cancellation and statistics.
+- [x] Apply the existing five-second cancellation budget. Tasks 12–13 will consume that budget.
+- [ ] Review/commit increment.
 
-- [ ] Write `SecondHostReadsFirstHostsSnapshot`: create independent hosts with separate L1 instances, common Redis prefix, and different transport call counters. After host A completes a successful call, host B must read the same content and fetched timestamp with zero provider calls. Add serialization of immutable collections/Uri/DateTimeOffset and Redis-degraded startup tests. Assert:
-  ```csharp
-  Assert.Equal(0, secondTransport.CallCount);
-  Assert.Equal(firstFetchedAt, secondFetchedAt);
-  ```
-- [ ] Run **Integration / RedisCacheTests**; confirm missing L2 behavior. A missing Docker engine is an explicit environment failure, not an ignored/skipped integration suite.
-- [ ] Add real RedisCache and FusionCache SystemTextJson serialization. Configure 250 ms distributed operation timeout, bounded connection attempts, and foreground writes. Configure failed Redis operations to preserve successful upstream results. Compose initially starts Redis alone; bind local access to loopback, set `maxmemory 128mb` and `maxmemory-policy allkeys-lru`, and omit persistence because this is disposable cached data. Pin the verified image/digest in both fixture and Compose.
-- [ ] Run **Integration all** and **Unit all**. Extend CI for Docker-capable Redis tests with isolated prefixes; unrelated HTTP tests may use L1-only configuration. README documents `docker compose up -d redis`, configuration and prerequisite checks, and why missing Redis degrades caching rather than crashes startup.
-- [ ] Commit: `feat: add Redis distributed cache and container setup`.
+## Task 16: Redis L2 — retired
 
-## Task 17: Synchronize local caches with the Redis backplane
+Removed by the approved 2026-11-06 revision. No Redis package, connection configuration, serializer, container fixture, Compose service or distributed-cache tests. API container packaging remains independent in Task 20.
 
-**Files — create:** `tests/ApiAggregation.IntegrationTests/Caching/BackplaneTests.cs`; modify CacheRegistration, CPM, Redis fixture helpers, README.
+## Task 17: Redis backplane — retired
 
-**Interfaces:** Reuse the existing cache registration and application port; no new Domain/Application interface. Configure the FusionCache StackExchangeRedis backplane with isolated channels consistent with the application/environment prefix.
+Removed by the approved revision. Document independent per-instance caches and evaluate Redis and backplane invalidation separately for production. Do not claim distributed locking or strong cross-node consistency.
 
-- [ ] Write `UpdatedSnapshotEventuallyReachesOtherHostsL1`: warm host A/B, replace A's cache entry with newer data through its actual IFusionCache, and use bounded polling until B reads the update. Also verify different prefixes do not cross-invalidate. Assert fetchedAt is the timestamp of the actual refreshed snapshot, not notification time.
-- [ ] Run **Integration / BackplaneTests**; confirm B retains its old L1 entry without the backplane.
-- [ ] Configure the official Redis backplane using the existing connection ownership model. Propagate cache changes without requiring clients to restart. Use event/gate-assisted bounded polling in tests, not fixed multi-second sleeps; do not assert immediate/strong consistency.
-- [ ] Run **Integration / BackplaneTests** and **Integration / RedisCacheTests**. Document eventual synchronization and that backplane sharing is not distributed locking.
-- [ ] Commit: `feat: coordinate cache updates through Redis backplane`.
+## Task 18: Serve bounded stale fallback
 
-## Task 18: Enable bounded stale fallback and degraded health
+**Status:** Implemented and verified 2026-11-06; left uncommitted for review. Final verification: Release build, 130 unit tests and 44 integration tests.
 
-**Files — create:** `src/ApiAggregation.Infrastructure/Caching/RedisHealthCheck.cs`, `tests/ApiAggregation.IntegrationTests/Caching/CacheFallbackTests.cs`, `tests/ApiAggregation.IntegrationTests/Health/ReadinessTests.cs`; modify CachedDiscoveryProvider, CacheRegistration, HealthController, README.
+**Files:** CachedDiscoveryProvider; UnitTests/Caching/CachedDiscoveryProviderTests.cs; IntegrationTests/Caching/CacheFallbackTests.cs; README.
 
-**Interfaces:** Add `HealthController.Ready(CancellationToken cancellationToken): Task<IActionResult>` using `HealthCheckService`, reporting degraded Redis status with HTTP 200 while local service remains usable. Health checks do not contact providers. Existing provider outcomes already expose stale status and original fetchedAt.
-
-- [ ] Write cases for failed refresh with prior good data, expired maximum age, no prior data, partial usable refresh replacing an old snapshot, all-invalid payload preserving old snapshot, valid empty refresh replacing old data, and Redis failure with/without an L1 snapshot. Add two-host fallback age preservation, malformed Redis payload, Result failure triggering fail-safe, cold failed Result never being cached, and warm-cache unexpected exception still producing HTTP 500 cases. Assert in `RefreshFailurePreservesOriginalAge`:
-  ```csharp
-  Assert.True(result.IsSuccess);
-  Assert.True(result.Value!.IsStale);
-  Assert.Equal(originalFetchedAt, result.Value.FetchedAt);
-  Assert.True(discovery.IsPartial);
-  ```
-  At the absolute stale deadline assert unavailable; a corrupted serialized entry must cause a safe cache miss/refetch or unavailable outcome, never a 500 exposing serialization internals.
-- [ ] Run **Integration / CacheFallbackTests** and **Integration / ReadinessTests**; confirm fail-safe/degraded health are absent.
-- [ ] Enable fail-safe when saving and reading: fresh 5 min, total retention 30 min, throttle 30 s. Stamp the cached envelope once after successful upstream retrieval; on any L2 copy keep its original timestamps. Never cache unavailable results as empty successes. Check the envelope's absolute expiry after GetOrSet even if FusionCache throttling has prolonged logical accessibility. Reserve no extra work beyond the outer provider deadline; eligible immediately available fallback may be used, otherwise return timeout/unavailable.
-- [ ] Implement Redis health degradation with bounded checks and safe diagnostics. Run **Unit all** and **Integration all**, including Redis loss after warmup and cold unavailable Redis. Use controlled TimeProvider for our policy and short test-specific TTLs only where FusionCache's clock cannot be replaced; wait on state conditions with bounded deadlines.
-- [ ] Commit: `feat: serve bounded stale data during provider outages`.
+- [x] Write and run failing tests for failed refresh, original-age preservation, throttle boundaries, expired/no prior data, usable incomplete refresh, invalid/incomplete-empty payload preservation, valid-empty replacement, and unexpected faults with a warm cache.
+- [x] On expected failure use an unexpired snapshot, mark it stale, and throttle further refreshes for 30 seconds. Never extend StaleUntil. Cold errors remain uncached. Caller cancellation and unexpected faults propagate.
+- [x] Verify HTTP stale metadata/partial flags, all-unavailable responses, independent host caches, and statistics excluding cache hits. Use controlled time and gated HTTP stubs.
+- [x] Document configuration, restarts, entry-count capacity, and the production shared-cache option. No Redis health checks or runtime requirement.
+- [x] Run Unit all and Integration all. Implementation ready for review; no commit created.
 
 ## Task 19: Add explicitly requested live smoke checks
 
 **Files — create:** `tests/ApiAggregation.SmokeTests/{LiveApiFactAttribute,ProviderSmokeTests}.cs`, `.github/workflows/smoke.yml`, `scripts/Invoke-SmokeTests.ps1`; modify SmokeTests csproj and README.
 
-**Interfaces:** `LiveApiFactAttribute : FactAttribute` skips by an explicit message unless `RUN_LIVE_SMOKE_TESTS=1`; normal CI never runs this project. Smoke checks use `DeadlineDiscoveryProvider -> DiscoveryProviderAdapter -> real typed client`, bypassing the cache decorator while retaining the five-second budget and actual HTTP resilience pipeline; use `dotnet` as topic. `Invoke-SmokeTests.ps1` sets/restores this environment flag in its own process and invokes the SmokeTests project, propagating failure exit code.
+**Interfaces:** `LiveApiFactAttribute : FactAttribute` skips by an explicit message unless `RUN_LIVE_SMOKE_TESTS=1`; normal CI never runs this project. Smoke checks call `DiscoveryProviderAdapter -> real typed client` with an explicit five-second cancellation token, bypassing the cache decorator while retaining the actual HTTP resilience pipeline; use `dotnet` as topic. `Invoke-SmokeTests.ps1` sets/restores this environment flag in its own process and invokes the SmokeTests project, propagating failure exit code.
 
 - [ ] Add one smoke test per provider: the call returns IsSuccess=true and parsed items, if any, have required ids/titles/absolute URLs and valid dates. Do not require a nonzero result set. With the flag absent, assert through a dry run that all three are reported skipped with the opt-in reason, rather than contacting the internet.
 - [ ] Implement the opt-in attribute, bounded provider checks, and workflow_dispatch-only workflow with optional GitHub token from secrets. Reuse provider implementation; no production cache hits are allowed to masquerade as connectivity success.
@@ -392,9 +362,9 @@ File paths below are repository-relative. Each type lives in its named file exce
 
 - [ ] Write `DocumentsDiscoveryAndStatisticsContracts`: fetch generated OpenAPI and assert discovery/statistics paths, query enums/ranges, 200/400/503 responses, provider status fields, and nullable empty statistics averages are represented. Verify the document uses bounded candidate counts rather than advertising global pagination.
 - [ ] Run **Integration / OpenApiTests**; confirm documentation is missing.
-- [ ] Add controller-aware OpenAPI and annotations/transformations, complete README/examples, and add API container to Compose with Redis service discovery, health checks, and the same config defaults. Pin supported .NET 10 base image digests when introducing Dockerfile. Keep local HTTP and deployment TLS responsibilities clear. Document all safe error codes, cache scope/age, metric scope, test commands, and how an additional provider registers without changing DiscoveryService.
+- [ ] Add controller-aware OpenAPI and annotations/transformations, complete README/examples, and optionally package the API container with local health checks and the same config defaults, independently of caching. Pin supported .NET 10 base image digests when introducing Dockerfile. Keep local HTTP and deployment TLS responsibilities clear. Document all safe error codes, cache scope/age, metric scope, test commands, and how an additional provider registers without changing DiscoveryService.
 - [ ] Run `dotnet restore ApiAggregation.slnx`, Release build, **Unit all**, **Integration all**, `docker compose config`, and `docker compose build api`; expect success. Start the task-owned Compose services and verify live/ready endpoints plus one discovery/statistics example where network permits; stop services created for verification. Review generated OpenAPI and serialized examples against the spec. Do not run a second full live smoke suite without a new reason.
-- [ ] Commit: `docs: complete API contracts and reproducible setup` (split Docker packaging into `build: package API with Redis` if the diff is independently reviewable).
+- [ ] Commit: `docs: complete API contracts and reproducible setup` (split Docker packaging into `build: package API` if the diff is independently reviewable).
 
 ## Task 21: Add JWT bearer authentication — after required features
 
@@ -433,7 +403,7 @@ File paths below are repository-relative. Each type lives in its named file exce
 **Interfaces:** No new product behavior. Deliver the source repository with reproducible commands and transparent test results.
 
 - [ ] Confirm every acceptance criterion maps to the tasks below and all implemented checkboxes reflect real evidence. Inspect the commit history: scaffold first, each provider separate, caching incremental, JWT/anomalies last. Do not squash it into a single implementation commit.
-- [ ] Run final Release restore/build and Unit/Integration suites, validate Compose and published OpenAPI, inspect `git diff --check` and repository status, and review the full implementation for dependency direction, cancellation, secret leakage, malformed responses, stale-age handling, and per-attempt metric correctness. Reuse prior verification evidence if no code has changed since the same full checks.
+- [ ] Run final Release restore/build and Unit/Integration suites, validate any API container packaging and published OpenAPI, inspect `git diff --check` and repository status, and review the full implementation for dependency direction, cancellation, secret leakage, malformed responses, stale-age handling, and per-attempt metric correctness. Reuse prior verification evidence if no code has changed since the same full checks.
 - [ ] Record the latest explicitly run smoke result and its environment; rerun only if relevant provider code changed or its result is unresolved. Describe external limitations instead of claiming tests ran when they could not.
 - [ ] Resolve the user's intended remote repository destination if still unknown, then publish when authorized. Do not invent a GitHub/GitLab owner or visibility. Give the repository link, setup/test commands, and any concrete remaining limitations.
 
@@ -448,7 +418,7 @@ File paths below are repository-relative. Each type lives in its named file exce
 | Result pattern, typed validation/provider errors, MVC mapping | 2-6, 14-15, 18 |
 | Error handling, transient faults, fallback | 5-9, 12-13, 18 |
 | In-memory thread-safe request statistics and buckets | 10-11 |
-| Hybrid caching and performance | 14-18 |
+| In-memory caching and performance | 14-18 |
 | Unit tests and integration tests | Alongside every owning behavior |
 | Live smoke checks | 19 |
 | Documentation, reproducible setup, CI, repository delivery | 1 onward, 20, 23 |
@@ -460,20 +430,15 @@ File paths below are repository-relative. Each type lives in its named file exce
 - Coverage: every assignment requirement and accepted user preference has an owning task.
 - Dependency order: controllers/ports precede adapters; metrics precede retries; cache policy precedes L1/L2/fallback; optional features follow all required features.
 - Contract consistency: Application providers return Result<ProviderData>; raw Infrastructure clients return Result<ProviderContent>; validation returns Result<DiscoveryQuery>; aggregation returns Result<DiscoveryResult>; only cache decorators use CachedProviderSnapshot. ProviderDescriptor is the common source/type identity.
-- Test boundaries: unit tests use controlled collaborators; integration tests progress from early fake providers to real adapters with stubbed HTTP and real Redis; smoke tests alone use live providers.
+- Test boundaries: unit tests use controlled collaborators; integration tests progress from early fake providers to real adapters with stubbed HTTP and the actual memory cache; smoke tests alone use live providers.
 - Review Focus: all five listed risks have explicit tests in their owning tasks.
 - Scope at plan authoring: no application code, dependencies, repository initialization, or tests had been created/run. Native execution is now in progress.
 
 ## Reference links for implementation
 
 - [Design references and behavioral decisions](../specs/2026-11-05-api-aggregation-design.md#references-consulted)
-- [FusionCache stable package](https://www.nuget.org/packages/ZiggyCreatures.FusionCache/2.9.0)
-- [FusionCache Redis backplane package](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.Backplane.StackExchangeRedis/2.9.0)
-- [FusionCache SystemTextJson serializer](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.Serialization.SystemTextJson/2.9.0)
 - [xUnit v3 package](https://www.nuget.org/packages/xunit.v3.mtp-off/4.0.2)
-- [Testcontainers.Redis package](https://www.nuget.org/packages/Testcontainers.Redis/4.14.0)
 - [Microsoft HTTP resilience package](https://www.nuget.org/packages/Microsoft.Extensions.Http.Resilience/10.11.0)
 
 - [Reference Result folder](E:/STORAGE/Documents/Indeavor_project/src/backend/src/Indeavor_project.Core/Result/Result.cs)
 - [Reference HTTP mapper, to adapt for MVC](E:/STORAGE/Documents/Indeavor_project/src/backend/src/Indeavor_project.Api/Extensions/ResultHttpExtensions.cs)
-- [FusionCache v2.9.0 explicit factory failure](https://github.com/ZiggyCreatures/FusionCache/blob/v2.9.0/docs/FailSafe.md#-even-without-exceptions)
