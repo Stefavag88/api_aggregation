@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/ApiAggregation.Infrastructure/ApiAggregation.Infrastructure.csproj" />
+    <None Include="../../src/ApiAggregation.Api/appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

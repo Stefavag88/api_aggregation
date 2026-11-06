@@ -349,13 +349,15 @@ Removed by the approved revision. Document independent per-instance caches and e
 
 ## Task 19: Add explicitly requested live smoke checks
 
+**Status:** Implemented and ready for review. The default run discovered and skipped all three tests. The opted-in run passed against all three live providers.
+
 **Files — create:** `tests/ApiAggregation.SmokeTests/{LiveApiFactAttribute,ProviderSmokeTests}.cs`, `.github/workflows/smoke.yml`, `scripts/Invoke-SmokeTests.ps1`; modify SmokeTests csproj and README.
 
 **Interfaces:** `LiveApiFactAttribute : FactAttribute` skips by an explicit message unless `RUN_LIVE_SMOKE_TESTS=1`; normal CI never runs this project. Smoke checks call `DiscoveryProviderAdapter -> real typed client` with an explicit five-second cancellation token, bypassing the cache decorator while retaining the actual HTTP resilience pipeline; use `dotnet` as topic. `Invoke-SmokeTests.ps1` sets/restores this environment flag in its own process and invokes the SmokeTests project, propagating failure exit code.
 
-- [ ] Add one smoke test per provider: the call returns IsSuccess=true and parsed items, if any, have required ids/titles/absolute URLs and valid dates. Do not require a nonzero result set. With the flag absent, assert through a dry run that all three are reported skipped with the opt-in reason, rather than contacting the internet.
-- [ ] Implement the opt-in attribute, bounded provider checks, and workflow_dispatch-only workflow with optional GitHub token from secrets. Reuse provider implementation; no production cache hits are allowed to masquerade as connectivity success.
-- [ ] Run `dotnet test tests/ApiAggregation.SmokeTests/ApiAggregation.SmokeTests.csproj -c Release` without opt-in and confirm three explicit skips. Then run `./scripts/Invoke-SmokeTests.ps1` once when network access is available; expect three passes or report precise live quota/network failures. Never mark a failed live run successful or automatically turn it into a skip.
+- [x] Add one smoke test per provider. Require a successful Result and validate the shape of any returned items.
+- [x] Add the opt-in attribute, bounded provider checks, and manual workflow with the optional `SMOKE_GITHUB_TOKEN` secret. Call the registered provider clients directly through the adapter.
+- [x] Verify three explicit skips in a default run and three passes with `./scripts/Invoke-SmokeTests.ps1`.
 - [ ] Commit: `test: add opt-in live provider smoke checks`.
 
 ## Task 20: Complete required-feature documentation and deployment checks

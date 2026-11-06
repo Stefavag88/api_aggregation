@@ -1,0 +1,22 @@
+name: Live provider smoke tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Test live providers
+        shell: pwsh
+        env:
+          Providers__GitHub__Token: ${{ secrets.SMOKE_GITHUB_TOKEN }}
+        run: ./scripts/Invoke-SmokeTests.ps1

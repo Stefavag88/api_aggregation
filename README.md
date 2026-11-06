@@ -6,7 +6,8 @@ primitives, validated queries, and concurrent aggregation across GitHub, DEV,
 and Hacker News. The statistics endpoint reports outbound attempts per provider.
 Provider results are cached in memory with bounded stale fallback. Polly handles
 transient HTTP failures. Provider cooldowns, circuit breakers, and concurrency
-limits protect upstream APIs. Authentication and live smoke tests remain planned.
+limits protect upstream APIs. Opt-in smoke tests check all three live providers.
+Authentication remains planned.
 
 ## Local setup
 
@@ -46,7 +47,30 @@ dotnet test tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTest
 
 Tests use xUnit v3's `mtp-off` package with the VSTest adapter so this command
 works consistently with .NET 10. Integration tests host the real MVC pipeline and
-stub provider responses at the HTTP transport. Smoke tests arrive later.
+stub provider responses at the HTTP transport.
+
+## Live smoke tests
+
+Run the smoke tests from PowerShell at the repository root.
+
+```powershell
+./scripts/Invoke-SmokeTests.ps1
+```
+
+The script opts in for the duration of the run. A direct `dotnet test` of
+`ApiAggregation.SmokeTests` skips the three tests unless
+`RUN_LIVE_SMOKE_TESTS=1` is set. The tests call GitHub, DEV, and Hacker News
+independently using the registered clients and their HTTP resilience pipelines.
+They bypass the cache and check that the response parses and any returned
+items have valid fields. Each provider call has a five-second cancellation budget.
+
+The tests need network access. To authenticate GitHub requests, set
+`Providers__GitHub__Token` in your environment. A provider outage or quota
+error fails an opted-in run with the provider name and error code.
+
+On GitHub, run **Live provider smoke tests** from the Actions tab. Configure
+the optional repository secret `SMOKE_GITHUB_TOKEN` to authenticate GitHub
+requests in that workflow. The regular CI workflow runs the offline suites.
 
 See the [design](docs/superpowers/specs/2026-11-05-api-aggregation-design.md) and
 [implementation plan](docs/superpowers/plans/2026-11-05-api-aggregation.md).
