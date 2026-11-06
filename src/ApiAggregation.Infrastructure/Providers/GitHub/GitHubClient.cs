@@ -9,6 +9,10 @@ using System.Text.Json;
 
 namespace ApiAggregation.Infrastructure.Providers.GitHub;
 
+/// <summary>
+/// Searches GitHub for public repositories matching a topic and maps the first page to discovery items.
+/// </summary>
+/// <param name="httpClient">The HTTP client configured for this provider.</param>
 public sealed class GitHubClient(HttpClient httpClient) : IExternalContentClient
 {
     private const int PageSize = 30;
@@ -18,6 +22,7 @@ public sealed class GitHubClient(HttpClient httpClient) : IExternalContentClient
 
     public ProviderDescriptor Descriptor => Metadata;
 
+    /// <inheritdoc />
     public async Task<Result<ProviderContent>> FetchAsync(string topic, CancellationToken cancellationToken)
     {
         var search = Uri.EscapeDataString($"{topic} is:public");

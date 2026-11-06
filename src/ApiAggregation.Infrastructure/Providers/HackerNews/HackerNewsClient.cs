@@ -9,6 +9,10 @@ using System.Text.Json;
 
 namespace ApiAggregation.Infrastructure.Providers.HackerNews;
 
+/// <summary>
+/// Searches the Hacker News Algolia API for stories and maps the first page to discovery items.
+/// </summary>
+/// <param name="httpClient">The HTTP client configured for this provider.</param>
 public sealed class HackerNewsClient(HttpClient httpClient) : IExternalContentClient
 {
     private const int PageSize = 30;
@@ -18,6 +22,7 @@ public sealed class HackerNewsClient(HttpClient httpClient) : IExternalContentCl
 
     public ProviderDescriptor Descriptor => Metadata;
 
+    /// <inheritdoc />
     public async Task<Result<ProviderContent>> FetchAsync(string topic, CancellationToken cancellationToken)
     {
         var query = Uri.EscapeDataString(topic);

@@ -17,8 +17,17 @@ using System.Net.Http.Headers;
 
 namespace ApiAggregation.Infrastructure;
 
+/// <summary>
+/// Registers the provider clients, cache, and statistics services used by Infrastructure.
+/// </summary>
 public static class DependencyInjection
 {
+    /// <summary>
+    /// Registers Infrastructure services and the enabled provider clients.
+    /// </summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="configuration">The application configuration used to bind settings.</param>
+    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);

@@ -1,5 +1,9 @@
 namespace ApiAggregation.Infrastructure.Providers;
 
+/// <summary>
+/// Defines the settings shared by external provider clients.
+/// </summary>
+/// <param name="baseAddress">The default HTTPS origin for the provider API.</param>
 public abstract class ProviderOptions(string baseAddress)
 {
     internal const bool EnabledByDefault = true;

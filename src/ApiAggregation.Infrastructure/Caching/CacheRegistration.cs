@@ -6,10 +6,19 @@ using ZiggyCreatures.Caching.Fusion;
 
 namespace ApiAggregation.Infrastructure.Caching;
 
+/// <summary>
+/// Registers FusionCache with a dedicated, size-limited memory store.
+/// </summary>
 public static class CacheRegistration
 {
     private const string ProviderMemory = "DiscoveryProviderMemory";
 
+    /// <summary>
+    /// Registers validated cache options and the singleton provider cache.
+    /// </summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="configuration">The application configuration used to bind settings.</param>
+    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddProviderCaching(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<ProviderCacheOptions>()

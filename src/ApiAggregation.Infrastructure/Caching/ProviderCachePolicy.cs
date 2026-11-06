@@ -1,5 +1,8 @@
 namespace ApiAggregation.Infrastructure.Caching;
 
+/// <summary>
+/// Defines how long provider snapshots are fresh, how old they can be, and how soon to retry a failed refresh.
+/// </summary>
 public sealed class ProviderCachePolicy
 {
     public TimeSpan FreshDuration { get; set; } = TimeSpan.FromMinutes(5);

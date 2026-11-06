@@ -6,6 +6,13 @@ using ZiggyCreatures.Caching.Fusion;
 
 namespace ApiAggregation.Infrastructure.Caching;
 
+/// <summary>
+/// Serves cached provider snapshots and coordinates refreshes within each caller's cancellation budget.
+/// </summary>
+/// <param name="inner">The provider used to refresh snapshots.</param>
+/// <param name="cache">The local FusionCache instance shared by the provider decorators.</param>
+/// <param name="options">The cache limits and per-provider policies.</param>
+/// <param name="timeProvider">The clock used for cancellation budgets and snapshot age checks.</param>
 public sealed class CachedDiscoveryProvider(
     IDiscoveryProvider inner,
     IFusionCache cache,
@@ -16,6 +23,12 @@ public sealed class CachedDiscoveryProvider(
 
     public ProviderDescriptor Descriptor => inner.Descriptor;
 
+    /// <summary>
+    /// Returns a usable provider snapshot, fetching or refreshing it through FusionCache as needed.
+    /// </summary>
+    /// <param name="topic">The normalized topic used to look up provider candidates.</param>
+    /// <param name="cancellationToken">Cancels this caller's operation.</param>
+    /// <returns>Fresh or eligible stale provider data, or an expected failure when no usable data is available.</returns>
     public async Task<Result<ProviderData>> FetchAsync(string topic, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

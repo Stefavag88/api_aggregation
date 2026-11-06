@@ -9,6 +9,10 @@ using System.Text.Json;
 
 namespace ApiAggregation.Infrastructure.Providers.DevTo;
 
+/// <summary>
+/// Fetches the first page of DEV Community articles for an exact topic tag and maps them to discovery items.
+/// </summary>
+/// <param name="httpClient">The HTTP client configured for this provider.</param>
 public sealed class DevToClient(HttpClient httpClient) : IExternalContentClient
 {
     private const int PageSize = 30;
@@ -18,6 +22,7 @@ public sealed class DevToClient(HttpClient httpClient) : IExternalContentClient
 
     public ProviderDescriptor Descriptor => Metadata;
 
+    /// <inheritdoc />
     public async Task<Result<ProviderContent>> FetchAsync(string topic, CancellationToken cancellationToken)
     {
         var tag = Uri.EscapeDataString(topic);

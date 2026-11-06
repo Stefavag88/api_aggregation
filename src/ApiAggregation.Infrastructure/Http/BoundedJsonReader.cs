@@ -5,12 +5,22 @@ using System.Text.Json;
 
 namespace ApiAggregation.Infrastructure.Http;
 
+/// <summary>
+/// Reads JSON response bodies with a one MiB limit, including bodies without a declared length.
+/// </summary>
 public static class BoundedJsonReader
 {
     private const int MaxBodyBytes = 1_048_576;
     private const int ReadBufferSize = 16_384;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// Reads and deserializes JSON while enforcing the response size limit.
+    /// </summary>
+    /// <typeparam name="T">The expected JSON payload type.</typeparam>
+    /// <param name="content">The response content to read.</param>
+    /// <param name="cancellationToken">Cancels body reading and deserialization.</param>
+    /// <returns>The deserialized value or a failure for oversized or invalid JSON.</returns>
     public static async Task<Result<T>> ReadAsync<T>(HttpContent content, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
