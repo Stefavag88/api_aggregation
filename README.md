@@ -329,6 +329,20 @@ is one second. Restart the API to apply a change. When the channel fills,
 recording waits asynchronously for space. This wait is excluded from the measured
 latency. On graceful shutdown the worker drains observations it has accepted.
 
+A background monitor checks each provider once a minute by default. It
+compares the mean attempt latency over the last five complete UTC minutes
+with the mean of all earlier attempts since startup. It uses the latest
+published observations and excludes the current partial minute. Both means
+are weighted by attempt count and include the same outcomes as the statistics
+endpoint.
+
+The monitor logs a warning when the recent mean exceeds 150% of the baseline
+mean and both windows have at least 10 attempts. It logs recovery when a later
+comparable window reaches or falls below the threshold. If either window
+lacks samples or the baseline is zero, it clears the alert state silently.
+The check interval is set by `Statistics:AnomalyCheckInterval` or
+`Statistics__AnomalyCheckInterval` and takes effect after restart.
+
 Example response with only GitHub enabled:
 
 ```json

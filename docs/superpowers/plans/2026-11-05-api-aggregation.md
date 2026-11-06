@@ -389,21 +389,19 @@ API-only container packaging remains an optional follow-up.
 
 ## Task 22: Add performance-anomaly analysis — last feature
 
-**Files — create:** `src/ApiAggregation.Infrastructure/Statistics/{PerformanceWindow,PerformanceHistory,AnomalyEvaluator,PerformanceAnomalyService,AnomalyOptions}.cs`; `tests/ApiAggregation.UnitTests/Statistics/{PerformanceHistoryTests,AnomalyEvaluatorTests,PerformanceAnomalyServiceTests}.cs`; modify store/registration/config/README.
+### Track bounded latency history
 
-**Interfaces:** Per-provider `PerformanceHistory(string source)` exposes `Record(AttemptObservation observation): void` and `GetWindow(DateTimeOffset now, long lifetimeCount, double lifetimeDurationMs): PerformanceWindow`; each window contains source, baseline count/duration sum, recent count/duration sum. Add `InMemoryStatisticsStore.GetPerformanceWindows(DateTimeOffset now): ImmutableArray<PerformanceWindow>` to snapshot history with that provider's lifetime totals under its existing lock. `AnomalyEvaluator.IsAnomalous(PerformanceWindow window): bool` is pure. `PerformanceAnomalyService(InMemoryStatisticsStore store, TimeProvider timeProvider, IOptions<AnomalyOptions> options, ILogger<PerformanceAnomalyService> logger): BackgroundService` checks every minute, logs transitions, and observes stoppingToken. `AnomalyOptions.CheckInterval` defaults to one minute. Keep the specified five-minute window, 1.5 ratio, and 10-sample minimum in the evaluator. Do not maintain an unsynchronized second lifetime total.
+- [x] Add store tests for minute boundaries, delayed observations that collide with newer buckets, idle gaps, and consistent publication of history and counts.
+- [x] Give each provider accumulator a six-slot UTC minute ring. The existing channel reader updates the ring by completion time and owns all mutable history. Keep older observations represented in the lifetime statistics.
+- [x] Publish copied minute buckets and lifetime totals alongside the existing immutable statistics in a single reference swap. Capture that reference before sampling the clock. Compute the last five complete minutes and the earlier baseline at read time, excluding the current minute. A quiet provider's window ages even between publications.
+- [x] Run the statistics unit tests and review the history and publication logic.
 
-- [ ] Write count-weighted baseline/window tests for five complete UTC minutes, exclusion of the current minute, bounded storage after long idle periods, concurrent recording/snapshot, and samples exactly on minute boundaries. `RequiresStrictlyMoreThanFiftyPercentIncrease` asserts:
-  ```csharp
-  Assert.False(AnomalyEvaluator.IsAnomalous(windowWithBaseline100AndRecent150));
-  Assert.True(AnomalyEvaluator.IsAnomalous(windowWithBaseline100AndRecent151));
-  ```
-  Both populations contain at least 10 samples; separately assert insufficient samples and zero baseline never alert. Test one warning on entry, no repeat during the same anomaly, one recovery, and prompt shutdown.
-- [ ] Run **Unit / PerformanceHistoryTests**, **Unit / AnomalyEvaluatorTests**, and **Unit / PerformanceAnomalyServiceTests**; confirm missing behavior.
-- [ ] Add a bounded six-minute ring (current plus previous five), preserving older data only in lifetime totals. Attribute observations by completion time. Compute baseline as lifetime minus current/recent retained totals; handle ring rollover and idle gaps without subtracting unrelated overwritten slots. Delayed recordings outside the retained window still contribute to lifetime/baseline. Only the last five complete minute slots contribute to recent data. Snapshot history and lifetime totals together.
-- [ ] Implement the evaluator (recent mean > 1.5 * baseline mean, each count >= 10, baseline > 0) and one-minute worker with per-provider anomaly transition state. Log provider, both sample counts, both means, and ratio; no secrets or full upstream payloads. Insufficient data should not be labeled a measured recovery; clear/reset tracking explicitly and document that behavior. This task can use separate passing history and worker commits.
-- [ ] Run **Unit all** and **Integration all**; existing statistics responses must remain correct after history is added. Verify shutdown and minute scheduling with controlled time, not five-minute wall-clock waits.
-- [ ] Commit: `feat: log sustained provider performance anomalies`.
+### Log provider performance transitions
+
+- [x] Add worker tests using controlled time for count-weighted averages, the strict 50% threshold, the minimum sample size, provider isolation, recovery, and shutdown.
+- [x] Add a hosted service that reads published windows once per configured interval. Use `Statistics:AnomalyCheckInterval` with a one-minute default and exact tick totals for the threshold comparison. Warn once on entry and log recovery once when a comparable window reaches or falls below the threshold. An inconclusive window clears tracked state without logging recovery.
+- [x] Document window semantics and configuration. Run the Release unit and integration suites.
+- [x] Commit the two increments separately after review.
 
 ## Task 23: Final review and repository handoff
 

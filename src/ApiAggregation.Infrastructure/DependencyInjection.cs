@@ -72,16 +72,21 @@ public static class DependencyInjection
     {
         services.AddOptions<StatisticsOptions>()
             .Bind(configuration.GetSection(StatisticsOptions.SectionName))
-            .Validate(options => options.SnapshotInterval >= TimeSpan.FromMilliseconds(1)
-                && options.SnapshotInterval <= TimeSpan.FromMilliseconds(uint.MaxValue - 1),
+            .Validate(options => IsSupportedTimerPeriod(options.SnapshotInterval),
                 "Statistics:SnapshotInterval must be between 1 millisecond and the maximum supported timer period.")
+            .Validate(options => IsSupportedTimerPeriod(options.AnomalyCheckInterval),
+                "Statistics:AnomalyCheckInterval must be between 1 millisecond and the maximum supported timer period.")
             .ValidateOnStart();
 
         services.AddSingleton<InMemoryStatisticsStore>();
         services.AddHostedService(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
         services.AddSingleton<IStatisticsReader>(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
         services.AddSingleton<IRequestStatisticsRecorder>(provider => provider.GetRequiredService<InMemoryStatisticsStore>());
+        services.AddHostedService<PerformanceAnomalyService>();
     }
+
+    private static bool IsSupportedTimerPeriod(TimeSpan period)
+        => period >= TimeSpan.FromMilliseconds(1) && period <= TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
     private static void AddGitHub(IServiceCollection services, IConfiguration configuration)
     {
