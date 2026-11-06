@@ -1,11 +1,11 @@
 # API examples
 
-Start the API with `dotnet run --project src/ApiAggregation.Api`. The local
-launch profile uses `http://localhost:5080` in Development. Swagger UI is at
+Follow the [local setup instructions](../README.md#local-authentication) to create
+a development token and start the API. The local launch profile uses
+`http://localhost:5080` in Development. Swagger UI is at
 `/swagger/index.html`, and the OpenAPI document is at `/swagger/v1/swagger.json`.
 The [HTTP request file](../src/ApiAggregation.Api/ApiAggregation.Api.http) includes
 requests you can run from an editor with an HTTP client.
-Create a development token using the [local setup instructions](../README.md#local-authentication).
 Discovery and statistics return HTTP 401 for missing or invalid bearer credentials.
 
 ```powershell
@@ -20,7 +20,8 @@ Invoke-RestMethod "$api/api/statistics" -Headers $headers
 ## Discovery
 
 Omit `sources` to query all enabled providers. Supply comma-separated source
-names to select specific providers. Date filters are inclusive and require an
+names to select specific providers. An explicitly blank value returns HTTP 400.
+Date filters are inclusive and require an
 explicit offset. Encode a positive offset with `%2B` in a query string.
 
 Each selected provider contributes candidates from its first page. Filtering,

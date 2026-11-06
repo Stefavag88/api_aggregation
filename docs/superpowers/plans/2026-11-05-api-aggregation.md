@@ -360,7 +360,7 @@ Removed by the approved revision. Document independent per-instance caches and e
 - [x] Add one smoke test per provider. Require a successful Result and validate the shape of any returned items.
 - [x] Add the opt-in attribute, bounded provider checks, and manual workflow with the optional `SMOKE_GITHUB_TOKEN` secret. Call the registered provider clients directly.
 - [x] Verify three explicit skips in a default run and three passes with `./scripts/Invoke-SmokeTests.ps1`.
-- [ ] Commit: `test: add opt-in live provider smoke checks`.
+- [x] Commit: `252241e test: add opt-in live provider smoke checks`.
 
 ## Task 20: Publish OpenAPI and delivery documentation
 
@@ -371,7 +371,7 @@ Removed by the approved revision. Document independent per-instance caches and e
 - [x] Verify the discovery, statistics, and liveness contracts in `OpenApiTests`, including query parameters, error extensions, nullable averages, and Development-only documentation access.
 - [x] Add request and response examples, safe error codes, and the provider integration guide. Link the guides and Swagger routes from README.
 - [x] Verify restore, the Release build, and all offline tests.
-- [ ] Commit: `docs: publish OpenAPI and provider integration guides`.
+- [x] Commit: `8eb3f3e docs: publish OpenAPI and provider integration guides`.
 
 API-only container packaging remains an optional follow-up.
 

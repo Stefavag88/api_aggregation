@@ -1,37 +1,20 @@
 # Developer Discovery API
 
-An ASP.NET Core API aggregation assignment, built in small, verified increments.
-The current increment provides controller-based liveness and discovery, shared Result
-primitives, validated queries, and concurrent aggregation across GitHub, DEV,
-and Hacker News. The statistics endpoint reports outbound attempts per provider.
-Provider results are cached in memory with bounded stale fallback. Polly handles
-transient HTTP failures. Provider cooldowns, circuit breakers, and concurrency
-limits protect upstream APIs. Opt-in smoke tests check all three live providers.
-Discovery and statistics require JWT bearer authentication.
+An ASP.NET Core API that searches GitHub, DEV, and Hacker News concurrently and
+returns a single filtered, sorted result. FusionCache stores provider results in
+memory and serves eligible stale results when a provider fails. Polly retries
+transient failures and limits upstream load. The API reports per-provider request
+statistics and logs latency anomalies. Discovery and statistics require JWT
+bearer authentication.
 
 ## Local setup
 
 Install a stable .NET 10 SDK version 10.0.301 or later. `global.json` allows newer
 .NET 10 feature bands, such as 10.0.403.
 
-```powershell
-dotnet restore ApiAggregation.slnx
-dotnet build ApiAggregation.slnx -c Release --no-restore
-dotnet run --project src/ApiAggregation.Api
-Invoke-RestMethod http://localhost:5080/health/live
-```
-
-The liveness endpoint returns HTTP 200 with `{"status":"healthy"}`.
-Liveness works without external services or credentials. Discovery calls the selected providers.
-
-In Development, browse Swagger UI at <http://localhost:5080/swagger/index.html>
-or fetch the [OpenAPI JSON](http://localhost:5080/swagger/v1/swagger.json).
-The document covers discovery, statistics, and liveness.
-
 ### Local authentication
 
-From the repository root, initialize the local settings file if needed and
-create a short-lived development token in PowerShell.
+From the repository root, create a short-lived development token in PowerShell.
 
 ```powershell
 $api = 'http://localhost:5080'
@@ -42,16 +25,28 @@ if (-not (Test-Path $developmentSettings)) {
 $token = dotnet user-jwts create --project src/ApiAggregation.Api/ApiAggregation.Api.csproj --audience $api --valid-for 1h --output token
 ```
 
-Start or restart the API in a separate terminal with
-`dotnet run --project src/ApiAggregation.Api`. Then use the token in the
-terminal where you created it.
+Start the API from the repository root in a second terminal. If it is already
+running, restart it to load the settings written by the SDK.
 
 ```powershell
-Invoke-RestMethod "$api/api/statistics" -Headers @{ Authorization = "Bearer $token" }
+dotnet run --project src/ApiAggregation.Api
 ```
 
-In Swagger UI, select **Authorize** and paste the token. For the `.http` file,
-set the `token` variable locally and keep the token out of version control.
+Back in the first terminal, call liveness and then send the token to discovery
+and statistics.
+
+```powershell
+$headers = @{ Authorization = "Bearer $token" }
+Invoke-RestMethod "$api/health/live"
+Invoke-RestMethod "$api/api/discovery?topic=dotnet&limit=10" -Headers $headers
+Invoke-RestMethod "$api/api/statistics" -Headers $headers
+```
+
+Liveness returns `{"status":"healthy"}`. Discovery contacts the selected providers.
+In Development, open [Swagger UI](http://localhost:5080/swagger/index.html),
+select **Authorize**, and paste the token. The [OpenAPI JSON](http://localhost:5080/swagger/v1/swagger.json)
+and the [HTTP request file](src/ApiAggregation.Api/ApiAggregation.Api.http) cover the same routes.
+Set the HTTP file's `token` variable locally and keep it out of version control.
 The SDK stores the signing key in .NET user secrets and writes the bearer
 issuer and audience to the ignored development settings file.
 
@@ -77,12 +72,17 @@ See [API examples](docs/api-examples.md) for requests and response shapes, and
 
 ## Structure
 
+The [discovery flow diagram](docs/discovery-flow.md) traces a request through
+authentication, provider calls, caching, and aggregation. The
+[cache ADR](docs/adr/0001-fusioncache-memory-only.md) records the decision to
+use FusionCache in memory-only mode.
+
 - `Domain`: framework-independent models and shared Result primitives.
 - `Application`: use cases and contracts, grouped into feature folders.
 - `Infrastructure`: provider integrations, caching, and statistics implementations.
 - `Api`: MVC controllers, HTTP contracts, and composition.
-- `UnitTests`, `IntegrationTests`, `SmokeTests`: separate test projects. Meaningful
-  tests arrive alongside the features they verify.
+- `UnitTests`, `IntegrationTests`, `SmokeTests`: isolated logic, HTTP contracts
+  with stubbed providers, and opt-in live provider checks.
 
 ## Result pattern and tests
 
@@ -92,6 +92,8 @@ Caller cancellation and unexpected bugs propagate rather than being converted
 into normal failed results. HTTP mapping lives in the controller layer.
 
 ```powershell
+dotnet restore ApiAggregation.slnx
+dotnet build ApiAggregation.slnx -c Release --no-restore
 dotnet test tests/ApiAggregation.UnitTests/ApiAggregation.UnitTests.csproj -c Release
 dotnet test tests/ApiAggregation.IntegrationTests/ApiAggregation.IntegrationTests.csproj -c Release
 ```
@@ -126,27 +128,24 @@ requests in that workflow. The regular CI workflow runs the offline suites.
 See the [design](docs/superpowers/specs/2026-11-05-api-aggregation-design.md) and
 [implementation plan](docs/superpowers/plans/2026-11-05-api-aggregation.md).
 
-## Discovery query contract
-
-Topics are trimmed/lowercased and contain 1-50 ASCII letters, digits, or hyphens,
-starting with a letter or digit (for example `dotnet`, `python`, `csharp`).
-Sources are comma-separated registered names with no empty entries. Dates use
-RFC 3339 with an explicit offset and inclusive bounds. Sorting supports date/title
-and asc/desc; defaults are date descending and a result limit of 30 (range 1-90).
-Invalid input produces structured validation issues rather than exceptions.
-
-Aggregation starts selected providers concurrently, preserves partial successes,
-and applies filtering, deterministic sorting, and limits after retrieval. Provider
-failures appear in reports; only total unavailability produces a failed Result.
-
 ## HTTP discovery endpoint
 
 `GET /api/discovery?topic=dotnet&sources=github,devto,hackernews&sortBy=date&sortDirection=desc&limit=30`
 
-Optional filters: `type=repository|article|discussion`, `from` and `to` (RFC 3339).
-Omit `sources` to search all enabled providers concurrently. The source names are
-`github`, `devto`, and `hackernews`. Each contributes candidates from its first
-upstream page. Set `Discovery:ProviderCandidateLimit` in `appsettings.json` or
+| Parameter | Accepted values and defaults |
+| --- | --- |
+| `topic` | Required. Trimmed and lowercased. Use 1–50 ASCII letters, digits, or hyphens, starting with a letter or digit. |
+| `sources` | Comma-separated enabled source names from `github`, `devto`, and `hackernews`. Omit to search all enabled sources. |
+| `type` | `repository`, `article`, or `discussion`. Omit to include every content type. |
+| `from`, `to` | Optional, inclusive RFC 3339 timestamps with an explicit offset and up to seven fractional digits. |
+| `sortBy` | `date` (default) or `title`. |
+| `sortDirection` | `desc` (default) or `asc`. |
+| `limit` | 1–90 items. Defaults to 30. |
+
+Blank query values return HTTP 400, as do empty entries in a source list.
+The API fetches one page of candidates per selected source concurrently, then
+filters, sorts, and applies the request limit. Set
+`Discovery:ProviderCandidateLimit` in `appsettings.json` or
 `Discovery__ProviderCandidateLimit` in the environment. It defaults to 30 and
 accepts values from 1 through 30. Restart to apply changes.
 
