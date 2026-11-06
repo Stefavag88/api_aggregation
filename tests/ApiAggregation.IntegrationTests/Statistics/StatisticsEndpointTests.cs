@@ -1,6 +1,5 @@
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.IntegrationTests.Support;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
@@ -17,7 +16,7 @@ public sealed class StatisticsEndpointTests
     public async Task CountsOnlyContactedProvidersAndUsesTransportOutcome(
         HttpStatusCode upstreamStatus, string payload, bool discoveryUnavailable, int successes, int failures)
     {
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddHttpClient(nameof(GitHubClient))

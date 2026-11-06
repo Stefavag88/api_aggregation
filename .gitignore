@@ -9,3 +9,4 @@ artifacts/
 .superpowers/
 .env
 !.env.example
+/src/ApiAggregation.Api/appsettings.Development.json

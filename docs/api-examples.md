@@ -5,13 +5,16 @@ launch profile uses `http://localhost:5080` in Development. Swagger UI is at
 `/swagger/index.html`, and the OpenAPI document is at `/swagger/v1/swagger.json`.
 The [HTTP request file](../src/ApiAggregation.Api/ApiAggregation.Api.http) includes
 requests you can run from an editor with an HTTP client.
+Create a development token using the [local setup instructions](../README.md#local-authentication).
+Discovery and statistics return HTTP 401 for missing or invalid bearer credentials.
 
 ```powershell
 $api = 'http://localhost:5080'
+$headers = @{ Authorization = "Bearer $token" }
 Invoke-RestMethod "$api/health/live"
-Invoke-RestMethod "$api/api/discovery?topic=dotnet&limit=10"
-Invoke-RestMethod "$api/api/discovery?topic=dotnet&sources=github&type=repository&from=2025-01-01T00:00:00Z&sortBy=title&sortDirection=asc"
-Invoke-RestMethod "$api/api/statistics"
+Invoke-RestMethod "$api/api/discovery?topic=dotnet&limit=10" -Headers $headers
+Invoke-RestMethod "$api/api/discovery?topic=dotnet&sources=github&type=repository&from=2025-01-01T00:00:00Z&sortBy=title&sortDirection=asc" -Headers $headers
+Invoke-RestMethod "$api/api/statistics" -Headers $headers
 ```
 
 ## Discovery

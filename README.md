@@ -7,7 +7,7 @@ and Hacker News. The statistics endpoint reports outbound attempts per provider.
 Provider results are cached in memory with bounded stale fallback. Polly handles
 transient HTTP failures. Provider cooldowns, circuit breakers, and concurrency
 limits protect upstream APIs. Opt-in smoke tests check all three live providers.
-Authentication remains planned.
+Discovery and statistics require JWT bearer authentication.
 
 ## Local setup
 
@@ -27,6 +27,50 @@ Liveness works without external services or credentials. Discovery calls the sel
 In Development, browse Swagger UI at <http://localhost:5080/swagger/index.html>
 or fetch the [OpenAPI JSON](http://localhost:5080/swagger/v1/swagger.json).
 The document covers discovery, statistics, and liveness.
+
+### Local authentication
+
+From the repository root, initialize the local settings file if needed and
+create a short-lived development token in PowerShell.
+
+```powershell
+$api = 'http://localhost:5080'
+$developmentSettings = 'src/ApiAggregation.Api/appsettings.Development.json'
+if (-not (Test-Path $developmentSettings)) {
+    '{}' | Set-Content $developmentSettings
+}
+$token = dotnet user-jwts create --project src/ApiAggregation.Api/ApiAggregation.Api.csproj --audience $api --valid-for 1h --output token
+```
+
+Start or restart the API in a separate terminal with
+`dotnet run --project src/ApiAggregation.Api`. Then use the token in the
+terminal where you created it.
+
+```powershell
+Invoke-RestMethod "$api/api/statistics" -Headers @{ Authorization = "Bearer $token" }
+```
+
+In Swagger UI, select **Authorize** and paste the token. For the `.http` file,
+set the `token` variable locally and keep the token out of version control.
+The SDK stores the signing key in .NET user secrets and writes the bearer
+issuer and audience to the ignored development settings file.
+
+### Authentication outside Development
+
+Configure the API with the HTTPS authority of your identity provider and the
+audience assigned to this API.
+
+| Environment variable | Value |
+| --- | --- |
+| `Authentication__Authority` | HTTPS authority that publishes OpenID Connect discovery metadata |
+| `Authentication__Audience` | Expected audience of the access token |
+
+Clients obtain an access token from that identity provider and send it in the
+`Authorization: Bearer <token>` header over HTTPS. ASP.NET Core validates the
+signature against the provider's published keys and checks the issuer, audience,
+and token lifetime. Missing or invalid credentials return HTTP 401. Liveness
+allows anonymous access. Missing or invalid authority and audience settings
+prevent startup.
 
 See [API examples](docs/api-examples.md) for requests and response shapes, and
 [Adding a provider](docs/adding-a-provider.md) for the integration steps.

@@ -21,7 +21,7 @@ public sealed class MemoryCacheTests
     public async Task ReusesSnapshotAcrossFiltersAndCountsOnlyActualTransport()
     {
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, (_, _) =>
         {
             Interlocked.Increment(ref attempts);
@@ -55,7 +55,7 @@ public sealed class MemoryCacheTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, async (_, cancellationToken) =>
         {
             Interlocked.Increment(ref attempts);
@@ -88,7 +88,7 @@ public sealed class MemoryCacheTests
     public async Task CachesValidEmptyResultsButNotFailures(string payload, HttpStatusCode expectedStatus, int expectedAttempts)
     {
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, (_, _) =>
         {
             Interlocked.Increment(ref attempts);
@@ -111,7 +111,7 @@ public sealed class MemoryCacheTests
         var clock = new DeadlineClock();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var bodyCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var transportFactory = CreateFactory(host, (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StreamContent(new StalledStream(entered, bodyCanceled))
@@ -138,7 +138,7 @@ public sealed class MemoryCacheTests
         var clock = new DeadlineClock();
         var recorder = new PausedRecorder();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var transportFactory = CreateFactory(host, (_, _) =>
         {
             Interlocked.Increment(ref attempts);
@@ -178,7 +178,7 @@ public sealed class MemoryCacheTests
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, async (_, token) =>
         {
             if (Interlocked.Increment(ref attempts) == 1)

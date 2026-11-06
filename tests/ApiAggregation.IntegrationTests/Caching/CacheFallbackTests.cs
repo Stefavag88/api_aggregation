@@ -25,7 +25,7 @@ public sealed class CacheFallbackTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, clock, () => ++attempts == 1
             ? Response(HttpStatusCode.OK, Repository)
             : Response(status, payload));
@@ -57,7 +57,7 @@ public sealed class CacheFallbackTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, clock, () => Response(HttpStatusCode.OK, ++attempts == 1 ? Repository : payload));
         using var client = factory.CreateClient();
         using var first = await DiscoverAsync(client, HttpStatusCode.OK);
@@ -80,7 +80,7 @@ public sealed class CacheFallbackTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, clock, () => ++attempts == 1
             ? Response(HttpStatusCode.OK, Repository)
             : throw new InvalidOperationException("private upstream implementation detail"));
@@ -99,7 +99,7 @@ public sealed class CacheFallbackTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, clock, () => ++attempts == 1
             ? Response(HttpStatusCode.OK, Repository)
             : Response(HttpStatusCode.TooManyRequests, ""));
@@ -124,7 +124,7 @@ public sealed class CacheFallbackTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         HttpResponseMessage Send()
         {
             Interlocked.Increment(ref attempts);

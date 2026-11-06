@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ApiAggregation.Api.Features.Health;
 
 [ApiController]
+[AllowAnonymous]
 [Route("health")]
 public sealed class HealthController : ControllerBase
 {

@@ -27,7 +27,7 @@ public sealed class ProviderProtectionTests
         var allEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, clock, async (_, token) =>
         {
             var attempt = Interlocked.Increment(ref attempts);
@@ -91,7 +91,7 @@ public sealed class ProviderProtectionTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, clock, (_, _) =>
         {
             var attempt = Interlocked.Increment(ref attempts);
@@ -146,7 +146,7 @@ public sealed class ProviderProtectionTests
     [InlineData("CircuitBreakDuration", "2.00:00:00")]
     public async Task RejectsInvalidProtectionSettingsAtStartup(string setting, string value)
     {
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, TimeProvider.System,
             (_, _) => throw new InvalidOperationException("Startup validation should run before transport."),
             new Dictionary<string, string?> { [$"ProviderResilience:{setting}"] = value });

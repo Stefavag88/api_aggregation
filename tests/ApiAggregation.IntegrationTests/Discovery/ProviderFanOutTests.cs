@@ -33,7 +33,7 @@ public sealed class ProviderFanOutTests
         var allEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var startedCount = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = WithTransports(host, async (source, payload, cancellationToken) =>
         {
             entered.Enqueue(source);
@@ -73,7 +73,7 @@ public sealed class ProviderFanOutTests
     public async Task ReportsPartialFailureAndContactsOnlySelectedSources(string sources, bool partial)
     {
         var requested = new ConcurrentQueue<string>();
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = WithTransports(host, (source, payload, _) =>
         {
             requested.Enqueue(source);

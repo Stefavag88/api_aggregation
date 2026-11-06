@@ -18,7 +18,7 @@ public sealed class ProviderCandidateLimitTests
     public async Task ConfiguredLimitControlsRequestMappingAndCacheKey()
     {
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var configured = WithCandidateLimit(host, "1");
         await using var factory = configured.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             services.AddHttpClient(nameof(GitHubClient)).ConfigurePrimaryHttpMessageHandler(() => new ProviderHttpStub(request =>
@@ -55,7 +55,7 @@ public sealed class ProviderCandidateLimitTests
     [InlineData("31")]
     public async Task RejectsOutOfRangeCandidateLimitAtStartup(string limit)
     {
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = WithCandidateLimit(host, limit);
         var exception = Assert.Throws<OptionsValidationException>(() => factory.CreateClient());
         Assert.Contains("Discovery:ProviderCandidateLimit", exception.Message);

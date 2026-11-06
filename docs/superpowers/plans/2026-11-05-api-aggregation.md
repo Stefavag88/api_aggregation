@@ -379,13 +379,13 @@ API-only container packaging remains an optional follow-up.
 
 **Files — create:** `src/ApiAggregation.Api/Authentication/AuthenticationRegistration.cs`; `tests/ApiAggregation.IntegrationTests/Authentication/JwtAuthenticationTests.cs`, `tests/ApiAggregation.IntegrationTests/Support/TestTokenIssuer.cs`; modify Program, discovery/statistics/health controllers, OpenAPI configuration, Api project user-secrets metadata, README/examples, CPM, test host authentication setup.
 
-**Interfaces:** `AuthenticationRegistration.AddApiAuthentication(IServiceCollection services, IConfiguration configuration): IServiceCollection`. Discovery/statistics require authenticated bearer access; health explicitly allows anonymous access. Use standard JwtBearer configuration, production issuer/audience/HTTPS metadata, and local `dotnet user-jwts`; no custom token endpoint or production symmetric signing secret in source control.
+**Interfaces:** `AuthenticationRegistration.AddApiAuthentication(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment): IServiceCollection`. Discovery and statistics require authenticated bearer access. Liveness explicitly allows anonymous access. The API uses standard JwtBearer configuration with production issuer, audience and HTTPS metadata, and local `dotnet user-jwts` in Development.
 
-- [ ] Write HTTP tests for missing bearer token, expired token, invalid signature, wrong issuer/audience (all 401), and valid token (200). Use actual bearer validation and deterministic test-only signing keys. Assert anonymous `/health/live` and `/health/ready` remain usable; unauthorized discovery requests cause zero provider calls.
-- [ ] Run **Integration / JwtAuthenticationTests**; confirm protected endpoints currently allow anonymous requests.
-- [ ] Implement authentication and `[Authorize]`/`[AllowAnonymous]`, secure defaults, and OpenAPI security declarations. Update existing successful endpoint tests to send a real valid test JWT; do not globally replace JWT authentication with a fake authentication handler. Add user-jwts setup and curl/.http instructions in this same commit. Ensure production startup validates required issuer/audience configuration rather than accidentally accepting local-development tokens.
-- [ ] Run **Unit all** and **Integration all**. Exercise local user-jwts flow once without printing signing keys or persisting tokens in committed examples. Direct-provider smoke tests remain unchanged.
-- [ ] Commit: `feat: secure discovery and statistics with JWT bearer tokens`.
+- [x] Cover missing, malformed, expired, incorrectly signed, and wrong-issuer or wrong-audience tokens (401), valid tokens (200), and anonymous liveness (200). Verify rejected discovery requests cause zero provider calls.
+- [x] Add authentication, controller access attributes and OpenAPI security declarations. Use real test JWTs in the existing endpoint integration tests. Document local token creation and the authenticated PowerShell and `.http` examples.
+- [x] Cover production startup validation, signing keys from issuer metadata, and rejection of development-signed tokens in production.
+- [x] Run the unit and integration suites and exercise the local SDK-issued token flow with temporary credentials.
+- [x] Commit: `feat: secure discovery and statistics with JWT bearer tokens`.
 
 ## Task 22: Add performance-anomaly analysis — last feature
 

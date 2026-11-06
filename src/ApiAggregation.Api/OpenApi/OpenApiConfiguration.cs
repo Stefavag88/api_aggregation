@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.OpenApi;
 
 namespace ApiAggregation.Api.OpenApi;
@@ -14,6 +15,14 @@ internal static class OpenApiConfiguration
                 Description = "Aggregates developer content and reports outbound provider request statistics."
             });
             options.DescribeAllParametersInCamelCase();
+            options.AddSecurityDefinition(JwtBearerDefaults.AuthenticationScheme, new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "Paste the JWT access token."
+            });
+            options.OperationFilter<BearerAuthorizationOperationFilter>();
             options.OperationFilter<DiscoveryOperationFilter>();
         });
 }

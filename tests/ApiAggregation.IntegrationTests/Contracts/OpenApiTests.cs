@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using System.Net;
 using System.Text.Json;
 
@@ -19,7 +20,11 @@ public sealed class OpenApiTests
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         var document = json.RootElement;
         var paths = document.GetProperty("paths");
+        var bearer = document.GetProperty("components").GetProperty("securitySchemes").GetProperty("Bearer");
+        Assert.Equal("http", bearer.GetProperty("type").GetString());
+        Assert.Equal("bearer", bearer.GetProperty("scheme").GetString());
         var discovery = paths.GetProperty("/api/discovery").GetProperty("get");
+        AssertRequiresBearer(discovery);
         var parameters = discovery.GetProperty("parameters").EnumerateArray()
             .ToDictionary(parameter => parameter.GetProperty("name").GetString()!);
 
@@ -47,6 +52,7 @@ public sealed class OpenApiTests
         AssertProblemExtension(discovery, "503", "providers");
 
         var statistics = paths.GetProperty("/api/statistics").GetProperty("get");
+        AssertRequiresBearer(statistics);
         var statisticsProperties = Resolve(document, ResponseSchema(statistics, "200", "application/json")).GetProperty("properties");
         Assert.True(statisticsProperties.TryGetProperty("measurementScope", out _));
         var provider = Resolve(document, statisticsProperties.GetProperty("providers").GetProperty("items")).GetProperty("properties");
@@ -55,6 +61,7 @@ public sealed class OpenApiTests
         Assert.True(bucket.GetProperty("averageResponseTimeMs").GetProperty("nullable").GetBoolean());
 
         var liveness = paths.GetProperty("/health/live").GetProperty("get");
+        Assert.False(liveness.TryGetProperty("security", out _));
         var health = Resolve(document, ResponseSchema(liveness, "200", "application/json")).GetProperty("properties");
         Assert.Equal("string", health.GetProperty("status").GetProperty("type").GetString());
     }
@@ -64,7 +71,13 @@ public sealed class OpenApiTests
     {
         await using var host = new WebApplicationFactory<Program>();
         await using var development = host.WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
-        await using var production = host.WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
+        await using var production = host.WithWebHostBuilder(builder => builder.UseEnvironment("Production")
+            .ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Authentication:Authority"] = "https://identity.example.test",
+                    ["Authentication:Audience"] = "discovery-api"
+                })));
         using var developmentClient = development.CreateClient();
         using var productionClient = production.CreateClient();
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -80,6 +93,13 @@ public sealed class OpenApiTests
     private static void AssertEnum(JsonElement parameter, params string[] expected)
         => Assert.Equal(expected.Order(StringComparer.Ordinal), parameter.GetProperty("schema").GetProperty("enum")
             .EnumerateArray().Select(value => value.GetString()).Order(StringComparer.Ordinal));
+
+    private static void AssertRequiresBearer(JsonElement operation)
+    {
+        var security = Assert.Single(operation.GetProperty("security").EnumerateArray());
+        Assert.Equal(0, security.GetProperty("Bearer").GetArrayLength());
+        Assert.True(operation.GetProperty("responses").TryGetProperty("401", out _));
+    }
 
     private static JsonElement ResponseSchema(JsonElement operation, string status, string contentType)
         => operation.GetProperty("responses").GetProperty(status).GetProperty("content")

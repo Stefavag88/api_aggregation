@@ -3,7 +3,6 @@ using ApiAggregation.Infrastructure.Providers.DevTo;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.Infrastructure.Statistics;
 using ApiAggregation.IntegrationTests.Support;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using System.Globalization;
@@ -28,7 +27,7 @@ public sealed class ProviderRateLimitTests
     {
         var clock = new TestClock();
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<TimeProvider>(clock);
@@ -87,7 +86,7 @@ public sealed class ProviderRateLimitTests
         var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<TimeProvider>(clock);
@@ -129,7 +128,7 @@ public sealed class ProviderRateLimitTests
     public async Task OrdinaryGitHubForbiddenDoesNotStartCooldown()
     {
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             services.AddHttpClient(nameof(GitHubClient)).ConfigurePrimaryHttpMessageHandler(() => new ProviderHttpStub(_ =>
             {

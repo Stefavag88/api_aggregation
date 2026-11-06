@@ -1,7 +1,6 @@
 using ApiAggregation.Infrastructure.Providers.DevTo;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.IntegrationTests.Support;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
@@ -18,7 +17,7 @@ public sealed class DevToDiscoveryEndpointTests
     public async Task CombinesRegisteredProvidersAndPreservesGitHubResultsWhenDevFails(HttpStatusCode devStatus, bool empty)
     {
         var devAvailable = devStatus == HttpStatusCode.OK;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = host.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddHttpClient(nameof(GitHubClient))

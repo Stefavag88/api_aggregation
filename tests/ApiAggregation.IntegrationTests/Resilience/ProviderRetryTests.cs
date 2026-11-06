@@ -27,7 +27,7 @@ public sealed class ProviderRetryTests
         HttpStatusCode first, HttpStatusCode second, HttpStatusCode third, int expectedAttempts, HttpStatusCode expectedStatus)
     {
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, (_, _) => Task.FromResult(Response(
             Interlocked.Increment(ref attempts) switch
             {
@@ -57,7 +57,7 @@ public sealed class ProviderRetryTests
     public async Task RetriesTransportFailuresAndAttemptTimeouts(bool stall, bool recover)
     {
         var attempts = 0;
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = CreateFactory(host, async (_, token) =>
         {
             var attempt = Interlocked.Increment(ref attempts);

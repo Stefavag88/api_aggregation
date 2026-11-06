@@ -1,7 +1,6 @@
 using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Infrastructure.Providers.GitHub;
 using ApiAggregation.IntegrationTests.Support;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,7 +35,7 @@ public sealed class GitHubDiscoveryEndpointTests
     [InlineData("integration-test-token")]
     public async Task ReturnsMappedRepositoryThroughRegisteredHttpClient(string token)
     {
-        await using var host = new WebApplicationFactory<Program>();
+        await using var host = new AuthenticatedApiFactory();
         await using var factory = host.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
@@ -85,7 +84,7 @@ public sealed class GitHubDiscoveryEndpointTests
         Assert.Equal("fresh", provider.GetProperty("status").GetString());
     }
 
-    private sealed class DisabledGitHubFactory : WebApplicationFactory<Program>
+    private sealed class DisabledGitHubFactory : AuthenticatedApiFactory
     {
         protected override IHost CreateHost(IHostBuilder builder)
         {
