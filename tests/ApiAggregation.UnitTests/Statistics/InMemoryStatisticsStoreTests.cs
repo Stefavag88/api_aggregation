@@ -7,6 +7,7 @@ namespace ApiAggregation.UnitTests.Statistics;
 
 public sealed class InMemoryStatisticsStoreTests
 {
+    private const long TicksPerMillisecond = TimeSpan.TicksPerMillisecond;
     private static readonly DateTimeOffset Now = new(2026, 11, 5, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -149,11 +150,86 @@ public sealed class InMemoryStatisticsStoreTests
     }
 
     [Fact]
+    public async Task PerformanceWindowUsesCompleteUtcMinutesAndAgesWithoutNewPublications()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var clock = new TestClock { UtcNow = Now.AddMinutes(-20) };
+        using var store = CreateStore(clock);
+
+        await store.RecordAsync(Observation("github", 20, AttemptOutcome.Success) with { CompletedAt = Now.AddMinutes(-5) });
+        await store.RecordAsync(Observation("github", 80, AttemptOutcome.Failure) with { CompletedAt = Now.AddTicks(-1) });
+        await store.RecordAsync(Observation("github", 800, AttemptOutcome.Canceled));
+        await store.RecordAsync(Observation("github", 50, AttemptOutcome.Success) with { CompletedAt = Now.AddMinutes(-5).AddTicks(-1) });
+        await store.RecordAsync(Observation("github", 30, AttemptOutcome.Success) with { CompletedAt = Now.AddMinutes(-19) });
+
+        Assert.All(store.GetPerformanceWindows(), window => Assert.Equal(0, window.RecentCount + window.BaselineCount));
+
+        clock.UtcNow = Now;
+        await store.StartAsync(cancellationToken);
+        await store.StopAsync(cancellationToken);
+
+        clock.UtcNow = Now.AddSeconds(30);
+        Assert.Equal(new ProviderPerformanceWindow("github", 2, 100 * TicksPerMillisecond, 2, 80 * TicksPerMillisecond),
+            store.GetPerformanceWindows().Single(window => window.Source == "github"));
+        clock.UtcNow = Now.AddMinutes(1);
+        Assert.Equal(new ProviderPerformanceWindow("github", 2, 880 * TicksPerMillisecond, 3, 100 * TicksPerMillisecond),
+            store.GetPerformanceWindows().Single(window => window.Source == "github"));
+        clock.UtcNow = Now.AddHours(1);
+        Assert.Equal(new ProviderPerformanceWindow("github", 0, 0, 5, 980 * TicksPerMillisecond),
+            store.GetPerformanceWindows().Single(window => window.Source == "github"));
+        Assert.Equal(5, store.GetSnapshot().Providers.Single(provider => provider.Source == "github").TotalRequests);
+    }
+
+    [Fact]
+    public async Task WindowKeepsItsSnapshotWhenPublicationCrossesAMinuteBoundary()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        var cancellationToken = timeout.Token;
+        var clock = new TestClock { UtcNow = Now.AddSeconds(59) };
+        using var store = CreateStore(clock);
+        var initial = store.GetSnapshot();
+        await store.RecordAsync(Observation("github", 20, AttemptOutcome.Success) with { CompletedAt = Now.AddMinutes(-5) });
+        await store.StartAsync(cancellationToken);
+        var timer = await clock.TimerCreated.Task.WaitAsync(cancellationToken);
+        timer.Tick();
+        while (ReferenceEquals(initial, store.GetSnapshot()))
+            await Task.Delay(10, cancellationToken);
+
+        using var publicationComplete = new ManualResetEventSlim();
+        var clockSampled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        clock.OnNextRead = () =>
+        {
+            clockSampled.SetResult();
+            publicationComplete.Wait(cancellationToken);
+        };
+        var reading = Task.Run(store.GetPerformanceWindows, cancellationToken);
+        try
+        {
+            await clockSampled.Task.WaitAsync(cancellationToken);
+            clock.UtcNow = Now.AddMinutes(1);
+            await store.RecordAsync(Observation("github", 80, AttemptOutcome.Success) with { CompletedAt = clock.UtcNow });
+            await store.StopAsync(cancellationToken);
+        }
+        finally
+        {
+            publicationComplete.Set();
+        }
+
+        var earlier = await reading;
+        Assert.Equal(new ProviderPerformanceWindow("github", 1, 20 * TicksPerMillisecond, 0, 0),
+            earlier.Single(window => window.Source == "github"));
+        Assert.Equal(new ProviderPerformanceWindow("github", 0, 0, 1, 20 * TicksPerMillisecond),
+            store.GetPerformanceWindows().Single(window => window.Source == "github"));
+    }
+
+    [Fact]
     public async Task ParallelWritesPreserveExactPerProviderTotals()
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         cancellation.CancelAfter(TimeSpan.FromSeconds(5));
-        using var store = CreateStore();
+        var clock = new TestClock();
+        using var store = CreateStore(clock);
         await store.StartAsync(cancellation.Token);
 
         var writes = Parallel.ForEachAsync(Enumerable.Range(0, 10_000), cancellation.Token, (index, _) =>
@@ -181,6 +257,11 @@ public sealed class InMemoryStatisticsStoreTests
         Assert.Equal((5000L, 2500L, 2500L, 0L), (devTo.TotalRequests, devTo.SuccessCount, devTo.FailureCount, devTo.CanceledCount));
         Assert.Equal((0L, 5000L, 0L), (devTo.Fast.Count, devTo.Average.Count, devTo.Slow.Count));
         Assert.Equal(150d, devTo.AverageResponseTimeMs);
+        clock.UtcNow = Now.AddMinutes(1);
+        Assert.Equal(new ProviderPerformanceWindow("github", 5000, 600_000 * TicksPerMillisecond, 0, 0),
+            store.GetPerformanceWindows().Single(window => window.Source == "github"));
+        Assert.Equal(new ProviderPerformanceWindow("devto", 5000, 750_000 * TicksPerMillisecond, 0, 0),
+            store.GetPerformanceWindows().Single(window => window.Source == "devto"));
     }
 
     private static AttemptObservation Observation(string source, int milliseconds, AttemptOutcome outcome)
@@ -192,10 +273,18 @@ public sealed class InMemoryStatisticsStoreTests
 
     private sealed class TestClock : TimeProvider
     {
+        private Action? _onNextRead;
+
         public DateTimeOffset UtcNow { get; set; } = Now;
         public TaskCompletionSource<TestTimer> TimerCreated { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Action? OnNextRead { set => Volatile.Write(ref _onNextRead, value); }
 
-        public override DateTimeOffset GetUtcNow() => UtcNow;
+        public override DateTimeOffset GetUtcNow()
+        {
+            var now = UtcNow;
+            Interlocked.Exchange(ref _onNextRead, null)?.Invoke();
+            return now;
+        }
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {

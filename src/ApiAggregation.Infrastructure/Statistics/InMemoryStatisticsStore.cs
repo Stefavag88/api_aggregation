@@ -25,7 +25,7 @@ public sealed class InMemoryStatisticsStore : BackgroundService, IStatisticsRead
     private readonly TimeSpan _snapshotInterval;
     private readonly DateTimeOffset _startedAt;
     private readonly FrozenDictionary<string, ProviderAccumulator> _accumulators;
-    private StatisticsSnapshot _snapshot;
+    private PublishedSnapshot _snapshot;
 
     /// <summary>
     /// Initializes the worker and publishes a zero-count snapshot for all configured providers.
@@ -64,7 +64,18 @@ public sealed class InMemoryStatisticsStore : BackgroundService, IStatisticsRead
     /// <summary>
     /// Returns the latest published immutable statistics snapshot.
     /// </summary>
-    public StatisticsSnapshot GetSnapshot() => Volatile.Read(ref _snapshot);
+    public StatisticsSnapshot GetSnapshot() => Volatile.Read(ref _snapshot).Statistics;
+
+    /// <summary>
+    /// Returns latency windows calculated from one published snapshot for all configured providers.
+    /// </summary>
+    public ImmutableArray<ProviderPerformanceWindow> GetPerformanceWindows()
+    {
+        // Capture the snapshot first so its buckets cannot advance past the sampled minute.
+        var published = Volatile.Read(ref _snapshot);
+        var now = _timeProvider.GetUtcNow();
+        return [.. published.Performance.Select(history => history.GetWindow(now))];
+    }
 
     /// <summary>
     /// Stops accepting observations and waits for the worker to drain accepted entries.
@@ -146,17 +157,24 @@ public sealed class InMemoryStatisticsStore : BackgroundService, IStatisticsRead
 
     private void PublishSnapshot() => Volatile.Write(ref _snapshot, CreateSnapshot(_timeProvider.GetUtcNow()));
 
-    private StatisticsSnapshot CreateSnapshot(DateTimeOffset snapshotAt)
+    private PublishedSnapshot CreateSnapshot(DateTimeOffset snapshotAt)
     {
-        ImmutableArray<ProviderStatistics> providers = [.. _accumulators.Values
-            .OrderBy(accumulator => accumulator.Source, StringComparer.Ordinal)
-            .Select(accumulator => accumulator.Snapshot())];
+        var providers = _accumulators.Values.OrderBy(accumulator => accumulator.Source, StringComparer.Ordinal).ToArray();
 
-        return new StatisticsSnapshot(_startedAt, snapshotAt, providers);
+        return new PublishedSnapshot(
+            new StatisticsSnapshot(_startedAt, snapshotAt, [.. providers.Select(provider => provider.Snapshot())]),
+            [.. providers.Select(provider => provider.CapturePerformance())]);
     }
 
     private static double? Mean(double sumMilliseconds, long count)
         => count == 0 ? null : sumMilliseconds / count;
+
+    /// <summary>
+    /// Publishes endpoint statistics and the matching latency history together.
+    /// </summary>
+    private sealed record PublishedSnapshot(
+        StatisticsSnapshot Statistics,
+        ImmutableArray<PerformanceHistory.Snapshot> Performance);
 
     /// <summary>
     /// Aggregates attempt outcomes and duration buckets for one provider on the statistics worker.
@@ -167,11 +185,14 @@ public sealed class InMemoryStatisticsStore : BackgroundService, IStatisticsRead
         private readonly BucketAccumulator fast = new();
         private readonly BucketAccumulator average = new();
         private readonly BucketAccumulator slow = new();
+        private readonly PerformanceHistory performance = new();
         private long successes;
         private long failures;
         private long cancellations;
 
         public string Source { get; } = source;
+        private long TotalCount => successes + failures + cancellations;
+        private double TotalMilliseconds => fast.SumMilliseconds + average.SumMilliseconds + slow.SumMilliseconds;
 
         /// <summary>
         /// Updates the outcome count and the applicable latency bucket.
@@ -201,27 +222,28 @@ public sealed class InMemoryStatisticsStore : BackgroundService, IStatisticsRead
                 _ => slow
             };
             bucket.Add(milliseconds);
+            performance.Record(observation.CompletedAt, observation.Duration.Ticks);
         }
 
         /// <summary>
         /// Creates an immutable view of the provider's counts and average latencies.
         /// </summary>
         public ProviderStatistics Snapshot()
-        {
-            var total = successes + failures + cancellations;
-            var sum = fast.SumMilliseconds + average.SumMilliseconds + slow.SumMilliseconds;
-
-            return new ProviderStatistics(
+            => new(
                 Source,
-                total,
+                TotalCount,
                 successes,
                 failures,
                 cancellations,
-                Mean(sum, total),
+                Mean(TotalMilliseconds, TotalCount),
                 fast.Snapshot(),
                 average.Snapshot(),
                 slow.Snapshot());
-        }
+
+        /// <summary>
+        /// Captures the provider's retained minute buckets and lifetime totals.
+        /// </summary>
+        public PerformanceHistory.Snapshot CapturePerformance() => performance.Capture(Source, TotalCount);
     }
 
     /// <summary>
