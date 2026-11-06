@@ -1,12 +1,22 @@
 @host = http://localhost:5080
 
+### OpenAPI document (Development)
+GET {{host}}/swagger/v1/swagger.json
+
+### Liveness
 GET {{host}}/health/live
 
 ### All registered sources
 GET {{host}}/api/discovery?topic=dotnet&sortBy=date&limit=10
 
+### Repositories from GitHub within a publication date range
+GET {{host}}/api/discovery?topic=dotnet&sources=github&type=repository&from=2025-01-01T00:00:00Z&to=2026-11-06T23:59:59Z&sortBy=title&sortDirection=asc&limit=10
+
 ### Invalid topic: 400 without provider calls
 GET {{host}}/api/discovery?topic=c%23
+
+### Invalid result limit
+GET {{host}}/api/discovery?topic=dotnet&limit=60
 
 ### Per-provider request counts and latency buckets
 GET {{host}}/api/statistics

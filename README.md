@@ -24,6 +24,13 @@ Invoke-RestMethod http://localhost:5080/health/live
 The liveness endpoint returns HTTP 200 with `{"status":"healthy"}`.
 Liveness works without external services or credentials. Discovery calls the selected providers.
 
+In Development, browse Swagger UI at <http://localhost:5080/swagger/index.html>
+or fetch the [OpenAPI JSON](http://localhost:5080/swagger/v1/swagger.json).
+The document covers discovery, statistics, and liveness.
+
+See [API examples](docs/api-examples.md) for requests and response shapes, and
+[Adding a provider](docs/adding-a-provider.md) for the integration steps.
+
 ## Structure
 
 - `Domain`: framework-independent models and shared Result primitives.

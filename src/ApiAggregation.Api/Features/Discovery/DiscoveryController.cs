@@ -9,6 +9,10 @@ namespace ApiAggregation.Api.Features.Discovery;
 public sealed class DiscoveryController(DiscoveryService service, IEnumerable<IDiscoveryProvider> providers) : ControllerBase
 {
     [HttpGet]
+    [ProducesResponseType<DiscoveryResponse>(StatusCodes.Status200OK, "application/json")]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable, "application/problem+json")]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status500InternalServerError, "application/problem+json")]
     public async Task<ActionResult<DiscoveryResponse>> Get([FromQuery] DiscoveryQueryInput input, CancellationToken cancellationToken)
     {
         var query = DiscoveryQueryParser

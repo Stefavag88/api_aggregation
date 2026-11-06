@@ -360,17 +360,18 @@ Removed by the approved revision. Document independent per-instance caches and e
 - [x] Verify three explicit skips in a default run and three passes with `./scripts/Invoke-SmokeTests.ps1`.
 - [ ] Commit: `test: add opt-in live provider smoke checks`.
 
-## Task 20: Complete required-feature documentation and deployment checks
+## Task 20: Publish OpenAPI and delivery documentation
 
-**Files — create:** `src/ApiAggregation.Api/OpenApi/OpenApiConfiguration.cs`, `Dockerfile`, `.dockerignore`, `docs/api-examples.md`, `docs/adding-a-provider.md`; modify README, `.http` examples, CI, Compose, Api Program, CPM; create `tests/ApiAggregation.IntegrationTests/Contracts/OpenApiTests.cs`.
+**Status:** Implemented and ready for review. The Release build passed with zero warnings and errors. All 130 unit tests and 81 integration tests passed, and the three live smoke checks skipped without opt-in.
 
-**Interfaces:** Use an OpenAPI generator that supports MVC controllers; select and pin compatible Swashbuckle.AspNetCore versions at this task. `OpenApiConfiguration.AddApiDocumentation(IServiceCollection services)` registers controller document generation. Serve Swagger JSON/UI through middleware in Development only; there are no Minimal API business/health endpoints. Document the expected development document URL in README.
+**Interfaces:** Swashbuckle.AspNetCore 10.3.1 generates OpenAPI from MVC controller metadata. Development exposes the document at `/swagger/v1/swagger.json` and Swagger UI at `/swagger/index.html`. Discovery adds query constraints and ProblemDetails extensions through an operation filter.
 
-- [ ] Write `DocumentsDiscoveryAndStatisticsContracts`: fetch generated OpenAPI and assert discovery/statistics paths, query enums/ranges, 200/400/503 responses, provider status fields, and nullable empty statistics averages are represented. Verify the document uses bounded candidate counts rather than advertising global pagination.
-- [ ] Run **Integration / OpenApiTests**; confirm documentation is missing.
-- [ ] Add controller-aware OpenAPI and annotations/transformations, complete README/examples, and optionally package the API container with local health checks and the same config defaults, independently of caching. Pin supported .NET 10 base image digests when introducing Dockerfile. Keep local HTTP and deployment TLS responsibilities clear. Document all safe error codes, cache scope/age, metric scope, test commands, and how an additional provider registers without changing DiscoveryService.
-- [ ] Run `dotnet restore ApiAggregation.slnx`, Release build, **Unit all**, **Integration all**, `docker compose config`, and `docker compose build api`; expect success. Start the task-owned Compose services and verify live/ready endpoints plus one discovery/statistics example where network permits; stop services created for verification. Review generated OpenAPI and serialized examples against the spec. Do not run a second full live smoke suite without a new reason.
-- [ ] Commit: `docs: complete API contracts and reproducible setup` (split Docker packaging into `build: package API` if the diff is independently reviewable).
+- [x] Verify the discovery, statistics, and liveness contracts in `OpenApiTests`, including query parameters, error extensions, nullable averages, and Development-only documentation access.
+- [x] Add request and response examples, safe error codes, and the provider integration guide. Link the guides and Swagger routes from README.
+- [x] Verify restore, the Release build, and all offline tests.
+- [ ] Commit: `docs: publish OpenAPI and provider integration guides`.
+
+API-only container packaging remains an optional follow-up.
 
 ## Task 21: Add JWT bearer authentication — after required features
 

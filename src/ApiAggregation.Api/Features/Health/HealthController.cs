@@ -7,5 +7,8 @@ namespace ApiAggregation.Api.Features.Health;
 public sealed class HealthController : ControllerBase
 {
     [HttpGet("live")]
-    public IActionResult Live() => Ok(new { status = "healthy" });
+    [ProducesResponseType<HealthResponse>(StatusCodes.Status200OK, "application/json")]
+    public ActionResult<HealthResponse> Live() => Ok(new HealthResponse("healthy"));
 }
+
+public sealed record HealthResponse(string Status);

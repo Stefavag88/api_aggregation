@@ -8,6 +8,10 @@ namespace ApiAggregation.Application.Features.Discovery;
 
 public static partial class DiscoveryQueryParser
 {
+    public const int MinimumLimit = 1;
+    public const int MaximumLimit = 90;
+    public const int DefaultLimit = 30;
+
     public static Result<DiscoveryQuery> Parse(
         DiscoveryQueryInput input, IReadOnlyCollection<ProviderDescriptor> providers)
     {
@@ -48,13 +52,13 @@ public static partial class DiscoveryQueryParser
         if (from > to)
             issues.Add(new("to", ValidationCodes.Invalid, "Must be greater than or equal to from."));
 
-        var limit = 30;
+        var limit = DefaultLimit;
         if (input.Limit is not null)
         {
             if (!int.TryParse(input.Limit, NumberStyles.None, CultureInfo.InvariantCulture, out limit))
                 issues.Add(new("limit", ValidationCodes.Invalid));
-            else if (limit is < 1 or > 90)
-                issues.Add(new("limit", ValidationCodes.OutOfRange, "Must be between 1 and 90."));
+            else if (limit is < MinimumLimit or > MaximumLimit)
+                issues.Add(new("limit", ValidationCodes.OutOfRange, $"Must be between {MinimumLimit} and {MaximumLimit}."));
         }
 
         return issues.Count > 0
