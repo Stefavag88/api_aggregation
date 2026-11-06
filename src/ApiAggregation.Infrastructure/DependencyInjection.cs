@@ -32,6 +32,11 @@ public static class DependencyInjection
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddProviderCaching(configuration);
+        services.AddOptions<ProviderResilienceOptions>()
+            .Bind(configuration.GetSection(ProviderResilienceOptions.SectionName))
+            .Validate(ProviderResilienceOptions.HasValidSettings,
+                "ProviderResilience requires an attempt timeout from 10 milliseconds to one day and a retry delay from zero to one day.")
+            .ValidateOnStart();
 
         AddProviders(services, configuration);
         AddStatistics(services, configuration);
@@ -117,11 +122,11 @@ public static class DependencyInjection
         where TClient : class, IExternalContentClient
         where TOptions : ProviderOptions
     {
-        services.AddHttpClient<TClient>((provider, client) =>
+        var builder = services.AddHttpClient<TClient>((provider, client) =>
             {
                 var options = provider.GetRequiredService<IOptions<TOptions>>().Value;
                 client.BaseAddress = new Uri(options.BaseAddress);
-                client.Timeout = TimeSpan.FromSeconds(5);
+                client.Timeout = Timeout.InfiniteTimeSpan;
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("ApiAggregationService/1.0");
                 client.DefaultRequestHeaders.Accept.ParseAdd(accept);
 
@@ -131,7 +136,9 @@ public static class DependencyInjection
             {
                 AutomaticDecompression = DecompressionMethods.All,
                 AllowAutoRedirect = false
-            })
+            });
+
+        ProviderHttpPipeline.Configure(builder, descriptor.Name)
             .AddHttpMessageHandler(provider => new RequestMetricsHandler(
                 descriptor.Name,
                 provider.GetRequiredService<IRequestStatisticsRecorder>(),

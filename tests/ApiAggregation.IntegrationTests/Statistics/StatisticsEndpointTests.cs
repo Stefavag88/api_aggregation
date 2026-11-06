@@ -13,7 +13,7 @@ public sealed class StatisticsEndpointTests
     [Theory]
     [InlineData(HttpStatusCode.OK, """{"items":[]}""", false, 1, 0)]
     [InlineData(HttpStatusCode.OK, "{", true, 1, 0)]
-    [InlineData(HttpStatusCode.BadGateway, "", true, 0, 1)]
+    [InlineData(HttpStatusCode.BadGateway, "", true, 0, 2)]
     public async Task CountsOnlyContactedProvidersAndUsesTransportOutcome(
         HttpStatusCode upstreamStatus, string payload, bool discoveryUnavailable, int successes, int failures)
     {
@@ -45,19 +45,20 @@ public sealed class StatisticsEndpointTests
         using var discovery = await client.GetAsync("/api/discovery?topic=dotnet&sources=github", cancellationToken);
         Assert.Equal(discoveryUnavailable ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK, discovery.StatusCode);
 
-        using var after = await WaitForGitHubAttemptAsync(client, cancellationToken);
+        var expectedAttempts = successes + failures;
+        using var after = await WaitForGitHubAttemptsAsync(client, expectedAttempts, cancellationToken);
         foreach (var provider in after.RootElement.GetProperty("providers").EnumerateArray())
         {
             var contacted = provider.GetProperty("source").GetString() == "github";
-            Assert.Equal(contacted ? 1 : 0, provider.GetProperty("totalRequests").GetInt64());
+            Assert.Equal(contacted ? expectedAttempts : 0, provider.GetProperty("totalRequests").GetInt64());
             Assert.Equal(contacted ? successes : 0, provider.GetProperty("successCount").GetInt64());
             Assert.Equal(contacted ? failures : 0, provider.GetProperty("failureCount").GetInt64());
-            Assert.Equal(contacted ? 1 : 0, new[] { "fast", "average", "slow" }
+            Assert.Equal(contacted ? expectedAttempts : 0, new[] { "fast", "average", "slow" }
                 .Sum(bucket => provider.GetProperty(bucket).GetProperty("count").GetInt64()));
         }
     }
 
-    private static async Task<JsonDocument> WaitForGitHubAttemptAsync(HttpClient client, CancellationToken cancellationToken)
+    private static async Task<JsonDocument> WaitForGitHubAttemptsAsync(HttpClient client, int expectedAttempts, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(5));
@@ -68,7 +69,7 @@ public sealed class StatisticsEndpointTests
             var github = snapshot.RootElement.GetProperty("providers").EnumerateArray()
                 .Single(provider => provider.GetProperty("source").GetString() == "github");
 
-            if (github.GetProperty("totalRequests").GetInt64() > 0)
+            if (github.GetProperty("totalRequests").GetInt64() >= expectedAttempts)
                 return snapshot;
 
             snapshot.Dispose();

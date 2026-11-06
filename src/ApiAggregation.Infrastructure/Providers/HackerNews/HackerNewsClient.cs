@@ -2,6 +2,7 @@ using ApiAggregation.Application.Features.Discovery;
 using ApiAggregation.Domain.Common.Results;
 using ApiAggregation.Domain.Discovery;
 using ApiAggregation.Infrastructure.Http;
+using Polly.Timeout;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
@@ -50,6 +51,11 @@ public sealed class HackerNewsClient(HttpClient httpClient) : IExternalContentCl
                 return AppResult.Failure<ProviderContent>(result.Error!);
 
             return MapResponse(result.Value!, cancellationToken);
+        }
+        catch (TimeoutRejectedException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return AppResult.Failure<ProviderContent>(ProviderErrors.Timeout);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

@@ -4,9 +4,9 @@ An ASP.NET Core API aggregation assignment, built in small, verified increments.
 The current increment provides controller-based liveness and discovery, shared Result
 primitives, validated queries, and concurrent aggregation across GitHub, DEV,
 and Hacker News. The statistics endpoint reports outbound attempts per provider.
-Provider results are cached in memory with bounded stale fallback. HTTP retries,
-rate-limit cooldowns, circuit breaking, authentication, and live smoke tests remain
-planned increments.
+Provider results are cached in memory with bounded stale fallback. Polly handles
+transient HTTP failures. Rate-limit cooldowns, circuit breaking, authentication,
+and live smoke tests remain planned increments.
 
 ## Local setup
 
@@ -115,6 +115,20 @@ Counts describe the bounded retrieved candidates, not total upstream matches.
 Validation returns 400 ProblemDetails with grouped `errors` and coded
 `validationErrors`; total unavailability returns 503 with `providers` reports.
 Unexpected failures return 500 with a trace ID and no exception details.
+
+## Provider HTTP retries
+
+Each provider uses a Polly pipeline through `Microsoft.Extensions.Http.Resilience`.
+It retries a GET once after a transport failure, an attempt timeout, HTTP 408,
+or HTTP 5xx. HTTP 429 and other client errors return directly. JSON parsing
+runs after the HTTP pipeline, so malformed responses produce provider failures.
+
+`ProviderResilience:AttemptTimeout` defaults to two seconds through response
+headers. `ProviderResilience:RetryDelay` defaults to 200 ms as the base for
+exponential backoff with jitter. Both attempts, the retry delay, and body
+processing consume the caller's five-second provider budget. Each retry counts
+as a separate transport attempt. A transport canceled by its attempt timeout
+counts in the canceled bucket.
 
 ## Provider caching
 

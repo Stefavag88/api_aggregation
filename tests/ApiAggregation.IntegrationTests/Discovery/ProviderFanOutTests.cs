@@ -89,7 +89,8 @@ public sealed class ProviderFanOutTests
         using var response = await client.GetAsync($"/api/discovery?topic=dotnet&sources={sources}", cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(sources.Split(',').Order(StringComparer.Ordinal), requested.Order(StringComparer.Ordinal));
+        var expectedAttempts = sources.Split(',').Concat(partial ? ["hackernews"] : Array.Empty<string>());
+        Assert.Equal(expectedAttempts.Order(StringComparer.Ordinal), requested.Order(StringComparer.Ordinal));
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         Assert.Equal(partial, json.RootElement.GetProperty("isPartial").GetBoolean());

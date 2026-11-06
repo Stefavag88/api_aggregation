@@ -133,6 +133,47 @@ public sealed class MemoryCacheTests
     }
 
     [Fact]
+    public async Task BudgetExpiryWaitsForAttemptRecordingAndSkipsRetry()
+    {
+        var clock = new DeadlineClock();
+        var recorder = new PausedRecorder();
+        var attempts = 0;
+        await using var host = new WebApplicationFactory<Program>();
+        await using var transportFactory = CreateFactory(host, (_, _) =>
+        {
+            Interlocked.Increment(ref attempts);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway));
+        });
+        await using var factory = transportFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<TimeProvider>(clock);
+            services.AddSingleton<IRequestStatisticsRecorder>(recorder);
+        }));
+        using var client = factory.CreateClient();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var request = client.GetAsync("/api/discovery?topic=dotnet&sources=github", cancellationToken);
+
+        try
+        {
+            await recorder.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            clock.ExpireBudget();
+            await Assert.ThrowsAsync<TimeoutException>(() =>
+                request.WaitAsync(TimeSpan.FromMilliseconds(50), cancellationToken));
+        }
+        finally
+        {
+            recorder.Release.TrySetResult();
+        }
+
+        using var response = await request.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var report = Assert.Single(json.RootElement.GetProperty("providers").EnumerateArray());
+        Assert.Equal("timeout", report.GetProperty("errorCode").GetString());
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
     public async Task CancelingOwnerScopeLetsAnotherScopeRetryThroughItsOwnClient()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -177,6 +218,18 @@ public sealed class MemoryCacheTests
     private static HttpResponseMessage Response(string payload)
         => new(HttpStatusCode.OK) { Content = new StringContent(payload) };
 
+    private sealed class PausedRecorder : IRequestStatisticsRecorder
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask RecordAsync(AttemptObservation observation)
+        {
+            Entered.TrySetResult();
+            return new ValueTask(Release.Task);
+        }
+    }
+
     private sealed class DeadlineClock : TimeProvider
     {
         private Action? _expire;
@@ -185,7 +238,8 @@ public sealed class MemoryCacheTests
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            if (period != Timeout.InfiniteTimeSpan)
+            // Leave Polly's per-attempt timer and the statistics timer on real time.
+            if (period != Timeout.InfiniteTimeSpan || dueTime != TimeSpan.FromSeconds(5))
                 return base.CreateTimer(callback, state, dueTime, period);
 
             _expire = () => callback(state);

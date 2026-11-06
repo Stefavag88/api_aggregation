@@ -260,11 +260,13 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 ## Task 12: Add bounded retries and verify provider deadlines
 
+**Status:** Implemented with Polly through Microsoft.Extensions.Http.Resilience 10.11.0. Release build passed with zero warnings and errors, and all 130 unit tests and 54 integration tests passed. Ready for review.
+
 **Files — create:** `src/ApiAggregation.Infrastructure/Http/{ProviderResilienceOptions,ProviderHttpPipeline}.cs`; `tests/ApiAggregation.IntegrationTests/Resilience/ProviderRetryTests.cs`, `tests/ApiAggregation.UnitTests/Caching/CachedDiscoveryProviderTests.cs`; modify provider registration and expected-error mapping.
 
 **Interfaces:** Reuse the existing CachedDiscoveryProvider caller budget and cancellation token; do not add a second outer timeout decorator. `ProviderHttpPipeline.Configure(IHttpClientBuilder builder, string source): IHttpClientBuilder` configures one Microsoft.Extensions.Http.Resilience pipeline per typed client, resolving options through DI. Options: attempt timeout 2 s, existing Caching:FetchTimeout 5 s, max retries 1, base retry delay 200 ms, exponential backoff with jitter.
 
-- [ ] Write `RetriesOneTransientFailureAndCountsBothAttempts`, 500->200 (2 requests), 500->500->200 (only first 2 sent), 400->200 (only 1 sent), network failure retry, timeout retry, malformed body (no retry), and body-read deadline tests. Assert:
+- [x] Write `RetriesOneTransientFailureAndCountsBothAttempts`, 500->200 (2 requests), 500->500->200 (only first 2 sent), 400->200 (only 1 sent), network failure retry, timeout retry, malformed body (no retry), and body-read deadline tests. Assert:
   ```csharp
   Assert.Equal(2, transport.CallCount);
   Assert.Equal(2, statistics.TotalRequests);
@@ -272,9 +274,9 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
   Assert.Equal(1, statistics.FailureCount);
   ```
   Write gated deadline tests: timeout returns a failed Result with ServiceUnavailable/`timeout`; caller cancellation propagates; a stalled inner provider cannot leave the caller waiting indefinitely.
-- [ ] Run **Integration / ProviderRetryTests** and **Unit / CachedDiscoveryProviderTests**; confirm retry/deadline failures.
-- [ ] Implement one retry policy for GET transport failures, attempt timeouts, 408, and 5xx. Disable HttpClient's competing timeout. Use the existing linked, TimeProvider-backed cache caller budget; body parsing and retries receive its remaining token. Verify cancellation through stalled response bodies and statistics backpressure. Do not detach scoped operations; explicitly address any path that cannot observe cancellation before claiming hard wall-clock limits. Retry parsing neither in adapters nor in cache factories.
-- [ ] Run **Unit all** and **Integration all**; verify retries execute through metrics separately. If splitting commits, land retries and their tests first, then the extended deadline and cancellation tests.
+- [x] Run **Integration / ProviderRetryTests** and **Unit / CachedDiscoveryProviderTests**; confirm retry/deadline failures.
+- [x] Implement one retry policy for GET transport failures, attempt timeouts, 408, and 5xx. Disable HttpClient's competing timeout. Use the existing linked, TimeProvider-backed cache caller budget; body parsing and retries receive its remaining token. Verify cancellation through stalled response bodies and statistics backpressure. Do not detach scoped operations; explicitly address any path that cannot observe cancellation before claiming hard wall-clock limits. Retry parsing neither in adapters nor in cache factories.
+- [x] Run **Unit all** and **Integration all**; verify retries execute through metrics separately. If splitting commits, land retries and their tests first, then the extended deadline and cancellation tests.
 - [ ] Commit: `feat: bound provider retries and execution time`.
 
 ## Task 13: Respect rate limits and bound provider load
@@ -297,7 +299,7 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 ## Task 14: Add immutable memory-cache policy
 
-**Revision approved 2026-11-06:** the [memory-only FusionCache migration](2026-11-06-fusioncache-memory-only.md) replaces custom cache coordination. Existing task numbers remain stable; Tasks 16-17 are explicitly retired. The pending statistics cancellation test above remains pending. Owner deadlines use cooperative cancellation: lossless telemetry/cleanup may finish after the budget; scoped operations are never detached. HTTP resilience Tasks 12-13 remain pending.
+**Revision approved 2026-11-06:** the [memory-only FusionCache migration](2026-11-06-fusioncache-memory-only.md) replaces custom cache coordination. Existing task numbers remain stable; Tasks 16-17 are explicitly retired. The pending statistics cancellation test above remains pending. Owner deadlines use cooperative cancellation: lossless telemetry/cleanup may finish after the budget; scoped operations are never detached. Task 12 implements Polly retries and attempt timeouts. Provider protection remains in Task 13.
 
 **Status:** Implemented and verified 2026-11-06; left uncommitted for review. Final verification: Release build, 130 unit tests and 44 integration tests.
 
@@ -320,7 +322,7 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 - [x] Register FusionCache with bounded memory and reuse the existing provider policy.
 - [x] Verify hit behavior, key isolation, concurrent fills, capacity, cancellation and statistics.
-- [x] Apply the existing five-second cancellation budget. Tasks 12–13 will consume that budget.
+- [x] Apply the existing five-second cancellation budget. Polly retries and attempt timeouts consume that budget.
 - [ ] Review/commit increment.
 
 ## Task 16: Redis L2 — retired
