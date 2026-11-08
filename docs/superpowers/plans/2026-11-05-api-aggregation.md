@@ -256,7 +256,7 @@ File paths below are repository-relative. Each type lives in its named file exce
 - [x] Run **Unit all** and **Integration all**. Document that latency excludes body parsing, backoff, cache access, and aggregation; add a statistics request/response example.
 - [x] Commit: `feat: expose measured external request statistics`.
 
-**Pending statistics test:** Force cancellation while the statistics worker is idle and waiting for both a channel observation and a publication tick. Assert that the worker exits promptly without spinning. The existing shutdown tests cover draining accepted observations during graceful shutdown.
+**Statistics cancellation coverage:** `CancelsIdleWorkerWithoutWaitingForObservationsOrTimerTick` starts the worker with an empty channel and a controlled timer, then cancels it without supplying observations or ticks. It requires the execution task to reach the canceled state within a bounded wait, verifies timer disposal, and checks that the original snapshot is retained. The existing shutdown tests cover draining accepted observations during graceful shutdown.
 
 Tasks 12 and 15 already track the retry and cache counting tests. Wait for a published statistics snapshot before asserting the attempt totals in those tests.
 
@@ -303,7 +303,7 @@ Tasks 12 and 15 already track the retry and cache counting tests. Wait for a pub
 
 ## Task 14: Add immutable memory-cache policy
 
-**Revision approved 2026-11-06:** the [memory-only FusionCache migration](2026-11-06-fusioncache-memory-only.md) replaces custom cache coordination. Existing task numbers remain stable; Tasks 16-17 are explicitly retired. The pending statistics cancellation test above remains pending. Owner deadlines use cooperative cancellation: lossless telemetry/cleanup may finish after the budget; scoped operations are never detached. Task 12 implements Polly retries and attempt timeouts. Provider protection remains in Task 13.
+**Revision approved 2026-11-06:** the [memory-only FusionCache migration](2026-11-06-fusioncache-memory-only.md) replaces custom cache coordination. Existing task numbers remain stable; Tasks 16-17 are explicitly retired. The statistics cancellation test above is covered. Owner deadlines use cooperative cancellation: lossless telemetry/cleanup may finish after the budget; scoped operations are never detached. Task 12 implements Polly retries and attempt timeouts. Provider protection remains in Task 13.
 
 **Status:** Implemented and verified 2026-11-06; left uncommitted for review. Final verification: Release build, 130 unit tests and 44 integration tests.
 

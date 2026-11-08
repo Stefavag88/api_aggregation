@@ -11,6 +11,29 @@ public sealed class InMemoryStatisticsStoreTests
     private static readonly DateTimeOffset Now = new(2026, 11, 5, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task CancelsIdleWorkerWithoutWaitingForObservationsOrTimerTick()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var workerCancellation = new CancellationTokenSource();
+        var clock = new TestClock();
+        using var store = CreateStore(clock);
+        var initial = store.GetSnapshot();
+
+        await store.StartAsync(workerCancellation.Token);
+        var timer = await clock.TimerCreated.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        var worker = Assert.IsAssignableFrom<Task>(store.ExecuteTask);
+        Assert.False(worker.IsCompleted);
+
+        workerCancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => worker.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken));
+        Assert.True(worker.IsCanceled);
+        Assert.True(timer.IsDisposed);
+        Assert.Same(initial, store.GetSnapshot());
+    }
+
+    [Fact]
     public async Task ObservationsAreVisibleOnlyAfterPublication()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -297,10 +320,15 @@ public sealed class InMemoryStatisticsStoreTests
     private sealed class TestTimer(TimerCallback callback, object? state, TimeSpan period) : ITimer
     {
         public TimeSpan Period { get; } = period;
+        public bool IsDisposed { get; private set; }
 
         public void Tick() => callback(state);
         public bool Change(TimeSpan dueTime, TimeSpan period) => throw new NotSupportedException();
-        public void Dispose() { }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public void Dispose() => IsDisposed = true;
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
     }
 }

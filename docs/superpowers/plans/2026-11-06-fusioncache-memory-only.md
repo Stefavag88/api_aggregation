@@ -17,7 +17,7 @@
 - Preserve defaults: 1,000 entry units, one unit per snapshot, 5 minutes fresh, 30 minutes maximum total age, 30 seconds failed-refresh throttle, 5-second caller cancellation budget.
 - No Redis, distributed-cache registration, serializer, backplane, container requirement, eager refresh or background factory completion. Evaluate Redis for production; do not implement it now.
 - Preserve user formatting and all existing uncommitted work. Do not reset, discard or commit the current memory-cache implementation to manufacture a migration history.
-- Existing HTTP resilience tasks and the pending idle statistics-worker cancellation test remain pending.
+- Subsequent increments completed HTTP resilience and the idle statistics-worker cancellation test, as recorded in the main implementation plan.
 
 ## Responsibility changes
 
@@ -76,7 +76,7 @@ Successful same-key concurrent requests reuse the cached result. Different keys 
 **Files:** README, existing design/implementation plan, and this plan's status.
 
 - [x] Explain memory-only FusionCache, unchanged setup/configuration, fail-safe limits, cancellation and the cold-failure coordination difference.
-- [x] Replace the plain-IMemoryCache decision in the existing documents while preserving the pending statistics reminder and unrelated work. Redis/backplane implementation tasks stay deferred.
+- [x] Replace the plain-IMemoryCache decision in the existing documents while preserving the statistics coverage notes and unrelated work. Redis/backplane implementation tasks stay deferred.
 - [x] Document that production deployment would evaluate Redis based on instance count, duplicated upstream traffic, quotas, freshness needs and operating cost. Shared L2 and backplane invalidation are separate choices; neither alone implies cluster-wide single-fetch guarantees.
 - [x] Record local caches/statistics as per-process and reset on restart. No Docker or Redis prerequisite for unit/integration tests.
 - [x] Run final checks below, inspect `git diff --check`, and leave changes uncommitted for review. No live smoke run is necessary for this internal cache change.
